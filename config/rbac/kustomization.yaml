@@ -22,6 +22,9 @@ resources:
 # default, aiding admins in cluster management. Those roles are
 # not used by the iris-backup-operator itself. You can comment the following lines
 # if you do not want those helpers be installed with your Project.
+- restoreverification_admin_role.yaml
+- restoreverification_editor_role.yaml
+- restoreverification_viewer_role.yaml
 - backuppolicy_admin_role.yaml
 - backuppolicy_editor_role.yaml
 - backuppolicy_viewer_role.yaml

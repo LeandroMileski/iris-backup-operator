@@ -12,9 +12,9 @@ Current step: **0.2**. Tools are installed in the Multipass VM `op-dev`. No kind
   - Accept: a test PVC can be snapshotted manually with a `VolumeSnapshot` and reaches `readyToUse: true`.
 
 ## Phase 1: Scaffold and API
-xw
-- [ ] 1.1 `kubebuilder init` and create the API (`BackupPolicy`, then `RestoreVerification`). Commit the untouched scaffold.
-- [ ] 1.2 Define the `BackupPolicy` spec and status types, with validation markers and printer columns (schedule, last backup, ready).
+
+- [x] 1.1 `kubebuilder init` and create the API (`BackupPolicy`, then `RestoreVerification`). Commit the untouched scaffold.
+- [] 1.2 Define the `BackupPolicy` spec and status types, with validation markers and printer columns (schedule, last backup, ready).
 - [ ] 1.3 Run `make generate manifests` and sample CRs in `config/samples/`.
   - Accept: `make test` passes, CRD installs with `make install`, invalid samples are rejected by the API server.
 

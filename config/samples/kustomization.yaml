@@ -1,4 +1,5 @@
 ## Append samples of your project ##
 resources:
 - ops_v1alpha1_backuppolicy.yaml
+- ops_v1alpha1_restoreverification.yaml
 # +kubebuilder:scaffold:manifestskustomizesamples
