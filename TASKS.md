@@ -8,11 +8,11 @@ Current step: **0.2**. Tools are installed in the Multipass VM `op-dev`. No kind
 
 - [x] 0.1 Verify tools: `go`, `kubebuilder`, `docker`, `kind`, `kubectl`, `make`, `helm`. Report versions; install nothing without asking.
   - Done in `op-dev`: go 1.27.2, kubebuilder v4.16.0, docker 29.1.3, kind v0.33.0, kubectl v1.37.1, make 4.3, helm v3.22.0.
-- [ ] 0.2 Create a kind cluster with the snapshot CRDs, snapshot controller, and CSI hostpath driver. Document the exact steps in `docs/dev-setup.md`.
+- [x] 0.2 Create a kind cluster with the snapshot CRDs, snapshot controller, and CSI hostpath driver. Document the exact steps in `docs/dev-setup.md`.
   - Accept: a test PVC can be snapshotted manually with a `VolumeSnapshot` and reaches `readyToUse: true`.
 
 ## Phase 1: Scaffold and API
-
+xw
 - [ ] 1.1 `kubebuilder init` and create the API (`BackupPolicy`, then `RestoreVerification`). Commit the untouched scaffold.
 - [ ] 1.2 Define the `BackupPolicy` spec and status types, with validation markers and printer columns (schedule, last backup, ready).
 - [ ] 1.3 Run `make generate manifests` and sample CRs in `config/samples/`.
