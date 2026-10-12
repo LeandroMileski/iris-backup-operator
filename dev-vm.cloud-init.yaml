@@ -1,0 +1,69 @@
+#cloud-config
+# Dev VM for the operator project: go, kubebuilder, docker, kind, kubectl, make, helm
+# Works on Ubuntu 24.04 (arm64 or amd64): the script detects the CPU architecture.
+
+write_files:
+  - path: /etc/profile.d/dev-path.sh
+    permissions: '0644'
+    content: |
+      export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
+
+  - path: /etc/sysctl.d/99-kind.conf
+    permissions: '0644'
+    content: |
+      fs.inotify.max_user_watches=524288
+      fs.inotify.max_user_instances=512
+
+  - path: /usr/local/bin/devcheck
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      export PATH=$PATH:/usr/local/go/bin
+      echo "go:         $(go version)"
+      echo "kubebuilder: $(kubebuilder version 2>&1 | head -1)"
+      echo "docker:     $(docker --version)"
+      echo "kind:       $(kind version)"
+      echo "kubectl:    $(kubectl version --client 2>&1 | head -1)"
+      echo "make:       $(make --version | head -1)"
+      echo "helm:       $(helm version --short)"
+
+  - path: /opt/bootstrap-dev.sh
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+      export HOME=/root DEBIAN_FRONTEND=noninteractive
+      ARCH=$(dpkg --print-architecture)
+
+      # Base packages (make comes with build-essential) and Docker
+      apt-get update
+      apt-get install -y build-essential git curl ca-certificates jq docker.io
+      systemctl enable --now docker
+      usermod -aG docker ubuntu
+      sysctl --system
+
+      # Go (latest stable, looked up at build time)
+      GO_VERSION=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -1)
+      curl -fsSL "https://go.dev/dl/${GO_VERSION}.linux-${ARCH}.tar.gz" | tar -C /usr/local -xz
+      export PATH=$PATH:/usr/local/go/bin
+
+      # kubectl
+      KUBECTL_VERSION=$(curl -fsSL https://dl.k8s.io/release/stable.txt)
+      curl -fsSL -o /usr/local/bin/kubectl \
+        "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl"
+      chmod 0755 /usr/local/bin/kubectl
+
+      # kubebuilder
+      curl -fsSL -o /usr/local/bin/kubebuilder "https://go.kubebuilder.io/dl/latest/linux/${ARCH}"
+      chmod 0755 /usr/local/bin/kubebuilder
+
+      # kind (built with the Go we just installed)
+      GOBIN=/usr/local/bin go install sigs.k8s.io/kind@latest
+
+      # helm
+      curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+
+      touch /var/lib/dev-bootstrap.done
+
+runcmd:
+  - [ bash, /opt/bootstrap-dev.sh ]
