@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **4.1**. Defaulting webhook (`retention`, `schedule` default, `suspend`).
+Current step: **4.2**. Validating webhook: cron syntax, `retention >= 1`, non-empty selector, verification fields required when `verifyRestore` is true.
 
 ## Phase 0: Environment
 
@@ -53,7 +53,8 @@ Current step: **4.1**. Defaulting webhook (`retention`, `schedule` default, `sus
 
 ## Phase 4: Admission webhooks
 
-- [ ] 4.1 Defaulting webhook (`retention`, `schedule` default, `suspend`).
+- [x] 4.1 Defaulting webhook (`retention`, `schedule` default, `suspend`).
+  - `make test` passed in `op-dev` (`internal/webhook/v1alpha1` coverage 100.0%). An empty `schedule` becomes `0 0 * * *`, an empty `retention` becomes 7, and an empty `suspend` becomes false. A schedule, retention, or suspend that is already set is left unchanged. Envtest admits a BackupPolicy without those fields and stores the defaults. The default install now includes the mutating webhook and the cert-manager certificate manifests.
 - [ ] 4.2 Validating webhook: cron syntax, `retention >= 1`, non-empty selector, verification fields required when `verifyRestore` is true.
 - [ ] 4.3 Webhook certificates via cert-manager. Unit tests for validation logic as plain functions.
   - Accept: invalid policies are rejected with clear messages; valid ones get defaults.

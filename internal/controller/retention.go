@@ -32,7 +32,7 @@ import (
 	opsv1alpha1 "github.com/LeandroMileski/iris-backup-operator/api/v1alpha1"
 )
 
-const defaultRetention = 7
+const defaultRetention = int(opsv1alpha1.DefaultBackupRetention)
 
 // pruneSnapshots deletes owned VolumeSnapshots that exceed retention, oldest first, for each PVC.
 func (r *BackupPolicyReconciler) pruneSnapshots(ctx context.Context, policy *opsv1alpha1.BackupPolicy) error {
