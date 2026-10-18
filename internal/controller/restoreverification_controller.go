@@ -18,7 +18,12 @@ package controller
 
 import (
 	"context"
+	"time"
 
+	"k8s.io/apimachinery/pkg/api/equality"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -27,31 +32,158 @@ import (
 	opsv1alpha1 "github.com/LeandroMileski/iris-backup-operator/api/v1alpha1"
 )
 
+const (
+	restoreVerificationPendingMessage   = "RestoreVerification is pending"
+	restoreVerificationRunningMessage   = "RestoreVerification is running"
+	restoreVerificationSucceededMessage = "RestoreVerification succeeded"
+	restoreVerificationFailedMessage    = "RestoreVerification failed"
+)
+
 // RestoreVerificationReconciler reconciles a RestoreVerification object
 type RestoreVerificationReconciler struct {
 	client.Client
 	Scheme *runtime.Scheme
+	// Now supplies the current time. Tests set it; a nil Now uses time.Now.
+	Now func() time.Time
 }
 
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the RestoreVerification object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
+// Reconcile moves a RestoreVerification one phase at a time.
+// An empty phase becomes Pending, and Pending becomes Running.
+// Running waits for the restore work. Succeeded and Failed stay as they are.
+// A missing object is ignored so delete events do not return an error.
 func (r *RestoreVerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	verification := &opsv1alpha1.RestoreVerification{}
+	if err := r.Get(ctx, req.NamespacedName, verification); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("RestoreVerification not found, ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get RestoreVerification")
+		return ctrl.Result{}, err
+	}
 
+	if !verification.DeletionTimestamp.IsZero() {
+		log.Info("RestoreVerification is deleting")
+		return ctrl.Result{}, nil
+	}
+
+	log.Info("Reconciling RestoreVerification", "phase", verification.Status.Phase)
+
+	next, err := advanceVerification(verification.Status.Phase, false, false)
+	if err != nil {
+		log.Error(err, "Failed to advance RestoreVerification")
+		return ctrl.Result{}, err
+	}
+	if err := r.persistVerification(ctx, verification, next); err != nil {
+		return ctrl.Result{}, err
+	}
+	if next == opsv1alpha1.RestoreVerificationPhasePending {
+		return ctrl.Result{Requeue: true}, nil
+	}
 	return ctrl.Result{}, nil
+}
+
+// persistVerification writes the phase, times, and conditions once.
+// A conflict retries against a fresh object so the status subresource update is not lost.
+func (r *RestoreVerificationReconciler) persistVerification(ctx context.Context, verification *opsv1alpha1.RestoreVerification, phase string) error {
+	log := logf.FromContext(ctx)
+
+	original := verification.Status.DeepCopy()
+	applyVerificationStatus(verification, phase, r.now())
+	if equality.Semantic.DeepEqual(original, &verification.Status) {
+		return nil
+	}
+
+	desired := verification.Status.DeepCopy()
+	key := client.ObjectKeyFromObject(verification)
+	var err error
+	for range 3 {
+		current := &opsv1alpha1.RestoreVerification{}
+		if err = r.Get(ctx, key, current); err != nil {
+			log.Error(err, "Failed to get RestoreVerification")
+			return err
+		}
+		if equality.Semantic.DeepEqual(&current.Status, desired) {
+			verification.SetResourceVersion(current.GetResourceVersion())
+			return nil
+		}
+		current.Status = *desired
+		err = r.Status().Update(ctx, current)
+		if err == nil {
+			verification.SetResourceVersion(current.GetResourceVersion())
+			verification.Status = current.Status
+			log.Info("Updated RestoreVerification status", "phase", verification.Status.Phase)
+			return nil
+		}
+		if !apierrors.IsConflict(err) {
+			log.Error(err, "Failed to update RestoreVerification status")
+			return err
+		}
+		log.Info("RestoreVerification status update conflicted, retrying")
+	}
+	log.Error(err, "Failed to update RestoreVerification status")
+	return err
+}
+
+func applyVerificationStatus(verification *opsv1alpha1.RestoreVerification, phase string, now time.Time) {
+	status := &verification.Status
+	status.ObservedGeneration = verification.Generation
+	if status.Phase != phase {
+		status.Phase = phase
+		switch phase {
+		case opsv1alpha1.RestoreVerificationPhasePending:
+			status.Message = restoreVerificationPendingMessage
+		case opsv1alpha1.RestoreVerificationPhaseRunning:
+			status.Message = restoreVerificationRunningMessage
+			status.StartTime = &metav1.Time{Time: now.UTC()}
+		case opsv1alpha1.RestoreVerificationPhaseSucceeded:
+			status.Message = restoreVerificationSucceededMessage
+			status.CompletionTime = &metav1.Time{Time: now.UTC()}
+		case opsv1alpha1.RestoreVerificationPhaseFailed:
+			status.Message = restoreVerificationFailedMessage
+			status.CompletionTime = &metav1.Time{Time: now.UTC()}
+		}
+	}
+	applyVerificationConditions(verification)
+}
+
+func applyVerificationConditions(verification *opsv1alpha1.RestoreVerification) {
+	phase := verification.Status.Phase
+	ready := metav1.Condition{
+		Type:               opsv1alpha1.RestoreVerificationConditionReady,
+		Status:             metav1.ConditionFalse,
+		Reason:             phase,
+		Message:            verification.Status.Message,
+		ObservedGeneration: verification.Generation,
+	}
+	degraded := metav1.Condition{
+		Type:               opsv1alpha1.RestoreVerificationConditionDegraded,
+		Status:             metav1.ConditionFalse,
+		Reason:             phase,
+		Message:            verification.Status.Message,
+		ObservedGeneration: verification.Generation,
+	}
+	if phase == opsv1alpha1.RestoreVerificationPhaseSucceeded {
+		ready.Status = metav1.ConditionTrue
+	}
+	if phase == opsv1alpha1.RestoreVerificationPhaseFailed {
+		degraded.Status = metav1.ConditionTrue
+	}
+	meta.SetStatusCondition(&verification.Status.Conditions, ready)
+	meta.SetStatusCondition(&verification.Status.Conditions, degraded)
+}
+
+func (r *RestoreVerificationReconciler) now() time.Time {
+	if r.Now != nil {
+		return r.Now()
+	}
+	return time.Now()
 }
 
 // SetupWithManager sets up the controller with the Manager.

@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **3.1**. RestoreVerification controller skeleton and state machine (`Pending -> Running -> Succeeded|Failed`).
+Current step: **3.2**. Restore: create a PVC from the snapshot (`dataSource`), then a verification pod mounting it read-only, running `verification.command` with a timeout.
 
 ## Phase 0: Environment
 
@@ -41,7 +41,8 @@ Current step: **3.1**. RestoreVerification controller skeleton and state machine
 
 ## Phase 3: Verified restore
 
-- [ ] 3.1 `RestoreVerification` controller skeleton and state machine (`Pending -> Running -> Succeeded|Failed`).
+- [x] 3.1 `RestoreVerification` controller skeleton and state machine (`Pending -> Running -> Succeeded|Failed`).
+  - `make test` passed in `op-dev` (`internal/controller` coverage 81.8%). The spec names the VolumeSnapshot, the source claim, and the verification command. An empty phase becomes `Pending` and requeues; the next reconcile becomes `Running` and records `startTime`. A second reconcile of `Running` does not write status. `Succeeded` and `Failed` stay as recorded. `advanceVerification` moves `Running` to `Succeeded` or `Failed`, and rejects finishing `Pending` or changing a terminal phase. `Ready` is True only for `Succeeded`. `Degraded` is True only for `Failed`. A conflicting status write is retried. A missing object is ignored, and an unknown phase returns an error.
 - [ ] 3.2 Restore: create a PVC from the snapshot (`dataSource`), then a verification pod mounting it read-only, running `verification.command` with a timeout.
 - [ ] 3.3 Interpret the pod result (exit code) into `.status`, then clean up the pod and PVC (always, even on failure).
 - [ ] 3.4 Policy controller creates a `RestoreVerification` after a successful backup when `verifyRestore` is true, and mirrors the latest result into `BackupPolicy.status.lastVerification`.
