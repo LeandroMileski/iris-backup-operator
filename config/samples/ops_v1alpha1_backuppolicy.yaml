@@ -6,4 +6,12 @@ metadata:
     app.kubernetes.io/managed-by: kustomize
   name: backuppolicy-sample
 spec:
-  # TODO(user): Add fields here
+  targetSelector:
+    matchLabels:
+      app.kubernetes.io/name: iris
+  schedule: "0 0 * * *"
+  retention: 1
+  verifyRestore: true
+  verification:
+    image: busybox
+    command: ["echo", "Hello, World!"]
