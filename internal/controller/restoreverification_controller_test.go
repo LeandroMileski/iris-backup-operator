@@ -24,6 +24,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -54,11 +55,22 @@ var _ = Describe("RestoreVerification Controller", func() {
 		By("creating the custom resource for the Kind RestoreVerification")
 		err := k8sClient.Get(ctx, typeNamespacedName, &opsv1alpha1.RestoreVerification{})
 		if err != nil && apierrors.IsNotFound(err) {
-			Expect(k8sClient.Create(ctx, newRestoreVerification(resourceName, resourceNamespace, 0))).To(Succeed())
+			resource := newRestoreVerification(resourceName, resourceNamespace, 0)
+			timeout := int32(30)
+			resource.Spec.Verification.TimeoutSeconds = &timeout
+			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 		}
+		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, restoreSourcePVC()))).To(Succeed())
+		Expect(client.IgnoreAlreadyExists(k8sClient.Create(ctx, restoreSnapshot(resourceNamespace)))).To(Succeed())
 	})
 
 	AfterEach(func() {
+		restoreName := restoreObjectName(resourceName)
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: restoreName, Namespace: resourceNamespace}}))).To(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: restoreName, Namespace: resourceNamespace}}))).To(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: resourceNamespace}}))).To(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, restoreSnapshot(resourceNamespace)))).To(Succeed())
+
 		resource := &opsv1alpha1.RestoreVerification{}
 		err := k8sClient.Get(ctx, typeNamespacedName, resource)
 		Expect(err).NotTo(HaveOccurred())
@@ -67,7 +79,7 @@ var _ = Describe("RestoreVerification Controller", func() {
 		Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
 	})
 
-	It("moves an empty phase to Pending and then Running", func() {
+	It("moves an empty phase to Pending and then restores a read-only volume", func() {
 		now := time.Date(2026, 10, 18, 16, 0, 0, 0, time.UTC)
 		reconciler := &RestoreVerificationReconciler{
 			Client: k8sClient,
@@ -84,6 +96,7 @@ var _ = Describe("RestoreVerification Controller", func() {
 		expectVerificationPhase(pending, opsv1alpha1.RestoreVerificationPhasePending)
 		Expect(pending.Status.StartTime).To(BeNil())
 		Expect(pending.Status.ObservedGeneration).To(Equal(pending.Generation))
+		Expect(apierrors.IsNotFound(k8sClient.Get(ctx, restoreKey(), &corev1.PersistentVolumeClaim{}))).To(BeTrue())
 
 		result, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
@@ -97,6 +110,15 @@ var _ = Describe("RestoreVerification Controller", func() {
 		Expect(running.Status.CompletionTime).To(BeNil())
 		started := running.ResourceVersion
 
+		restored := &corev1.PersistentVolumeClaim{}
+		Expect(k8sClient.Get(ctx, restoreKey(), restored)).To(Succeed())
+		expectRestorePVC(restored, running)
+		pod := &corev1.Pod{}
+		Expect(k8sClient.Get(ctx, restoreKey(), pod)).To(Succeed())
+		expectRestorePod(pod, running)
+		claimVersion := restored.ResourceVersion
+		podVersion := pod.ResourceVersion
+
 		result, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal(reconcile.Result{}))
@@ -105,6 +127,11 @@ var _ = Describe("RestoreVerification Controller", func() {
 		Expect(k8sClient.Get(ctx, typeNamespacedName, again)).To(Succeed())
 		Expect(again.ResourceVersion).To(Equal(started))
 		Expect(again.Status.StartTime.Time).To(BeTemporally("==", now))
+
+		Expect(k8sClient.Get(ctx, restoreKey(), restored)).To(Succeed())
+		Expect(k8sClient.Get(ctx, restoreKey(), pod)).To(Succeed())
+		Expect(restored.ResourceVersion).To(Equal(claimVersion))
+		Expect(pod.ResourceVersion).To(Equal(podVersion))
 	})
 })
 

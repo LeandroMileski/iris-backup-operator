@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -50,10 +51,14 @@ type RestoreVerificationReconciler struct {
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch
 
 // Reconcile moves a RestoreVerification one phase at a time.
 // An empty phase becomes Pending, and Pending becomes Running.
-// Running waits for the restore work. Succeeded and Failed stay as they are.
+// Running creates a PersistentVolumeClaim from the snapshot and a Pod that mounts it read-only.
+// Succeeded and Failed stay as they are.
 // A missing object is ignored so delete events do not return an error.
 func (r *RestoreVerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
@@ -85,6 +90,12 @@ func (r *RestoreVerificationReconciler) Reconcile(ctx context.Context, req ctrl.
 	}
 	if next == opsv1alpha1.RestoreVerificationPhasePending {
 		return ctrl.Result{Requeue: true}, nil
+	}
+	if next == opsv1alpha1.RestoreVerificationPhaseRunning {
+		if err := r.ensureRestore(ctx, verification); err != nil {
+			log.Error(err, "Failed to create restore resources")
+			return ctrl.Result{}, err
+		}
 	}
 	return ctrl.Result{}, nil
 }
@@ -190,6 +201,8 @@ func (r *RestoreVerificationReconciler) now() time.Time {
 func (r *RestoreVerificationReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&opsv1alpha1.RestoreVerification{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
+		Owns(&corev1.Pod{}).
 		Named("restoreverification").
 		Complete(r)
 }

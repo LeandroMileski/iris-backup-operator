@@ -137,7 +137,9 @@ spec:
                       command.
                     type: string
                   timeoutSeconds:
-                    description: timeoutSeconds is how long the command may run.
+                    default: 600
+                    description: timeoutSeconds is how long the command may run. Defaults
+                      to 600.
                     format: int32
                     minimum: 1
                     type: integer

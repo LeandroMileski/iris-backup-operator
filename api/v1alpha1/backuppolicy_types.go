@@ -35,8 +35,9 @@ type Verification struct {
 	// +required
 	Command []string `json:"command"`
 
-	// timeoutSeconds is how long the command may run.
+	// timeoutSeconds is how long the command may run. Defaults to 600.
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=600
 	// +optional
 	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
 }
