@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **1.3**. BackupPolicy spec, status, and printer columns are defined. CRDs regenerated in `op-dev`.
+Current step: **2.1**. CRDs are installed on `iris-dev`. Invalid `BackupPolicy` objects are rejected by the API server.
 
 ## Phase 0: Environment
 
@@ -18,8 +18,10 @@ Current step: **1.3**. BackupPolicy spec, status, and printer columns are define
   - Spec: `targetSelector`, `schedule`, `retention`, `suspend`, `snapshotClassName`, `verifyRestore`, `verification`.
   - Status: `lastSuccessfulBackupTime`, `lastVerification`, conditions `Ready` and `Degraded`.
   - `kubectl get backuppolicies` columns: Schedule, Last Backup, Ready. `make manifests generate` and `make test` passed in `op-dev`.
-- [ ] 1.3 Run `make generate manifests` and sample CRs in `config/samples/`.
+- [x] 1.3 Run `make generate manifests` and sample CRs in `config/samples/`.
   - Accept: `make test` passes, CRD installs with `make install`, invalid samples are rejected by the API server.
+  - `make test` passed in `op-dev`. `make install` configured both CRDs on `kind-iris-dev`. `kubectl apply -k config/samples/` created `backuppolicy-sample` and `restoreverification-sample`.
+  - `backuppolicy-invalid` (`schedule: not-a-cron`, `retention: 0`) was rejected: retention must be >= 1, schedule must match `^(\S+\s+){4}\S+$`. The object was not stored.
 
 ## Phase 2: Backup reconciler
 

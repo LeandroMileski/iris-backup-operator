@@ -5,5 +5,4 @@ metadata:
     app.kubernetes.io/name: iris-backup-operator
     app.kubernetes.io/managed-by: kustomize
   name: restoreverification-sample
-spec:
-  # TODO(user): Add fields here
+spec: {} # TODO(user): Add fields here
