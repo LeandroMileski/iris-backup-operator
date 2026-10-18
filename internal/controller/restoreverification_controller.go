@@ -48,12 +48,11 @@ type RestoreVerificationReconciler struct {
 	Now func() time.Time
 }
 
-// +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/finalizers,verbs=update
+// +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications,verbs=get;list;watch
+// +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/status,verbs=update
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
-// +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch
+// +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get
 
 // Reconcile moves a RestoreVerification one phase at a time.
 // An empty phase becomes Pending, and Pending becomes Running.

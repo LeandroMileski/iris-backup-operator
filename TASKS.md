@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **5.1**. Review generated RBAC. Reduce to the minimum verbs and resources actually used, and justify each rule in `docs/rbac.md`.
+Current step: **5.2**. Verification pods: non-root, read-only root filesystem, dropped capabilities, `seccompProfile: RuntimeDefault`, no service account token, resource limits.
 
 ## Phase 0: Environment
 
@@ -63,7 +63,8 @@ Current step: **5.1**. Review generated RBAC. Reduce to the minimum verbs and re
 
 ## Phase 5: Security
 
-- [ ] 5.1 Review generated RBAC. Reduce to the minimum verbs and resources actually used, and justify each rule in `docs/rbac.md`.
+- [x] 5.1 Review generated RBAC. Reduce to the minimum verbs and resources actually used, and justify each rule in `docs/rbac.md`.
+  - `make manifests` regenerated `config/rbac/role.yaml` from the markers. `make test` passed in `op-dev`. The manager role no longer grants create, delete, or patch on BackupPolicy, patch or get on status, update, patch, or delete on RestoreVerification, its finalizers, `watch` on VolumeSnapshots, or `events.k8s.io`. Leader election keeps `get`, `create`, and `update` on leases. Each remaining rule is justified in `docs/rbac.md`.
 - [ ] 5.2 Verification pods: non-root, read-only root filesystem, dropped capabilities, `seccompProfile: RuntimeDefault`, no service account token, resource limits.
 - [ ] 5.3 `NetworkPolicy` that denies all traffic for verification pods. Prove it with a test.
 - [ ] 5.4 Operator image: distroless, non-root, pinned base image digest.

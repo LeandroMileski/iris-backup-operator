@@ -54,14 +54,13 @@ type BackupPolicyReconciler struct {
 	Now func() time.Time
 }
 
-// +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies,verbs=get;list;watch;update
+// +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies/status,verbs=update
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
-// +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=list
+// +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;create;delete
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
-// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
 // Reconcile fetches the BackupPolicy, records status, and creates VolumeSnapshots when a run is due.
 // It deletes owned snapshots that exceed retention, oldest first, for each PVC.

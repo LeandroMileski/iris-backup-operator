@@ -59,15 +59,22 @@ sequenceDiagram
 
 ## 3. Recommended Presentation Setup
 
-To deliver maximum visual impact during a presentation:
+To deliver maximum visual impact during a presentation, use 3 terminal panes (e.g. in `tmux`, iTerm2, or VS Code):
 
-- **Split your terminal (tmux, iTerm2, or VS Code terminal)**:
-  - **Top Pane (Live Dashboard)**: Run a continuous watch of resources:
-    ```bash
-    watch -n 1 "kubectl get backuppolicies,restoreverifications,volumesnapshots,pvc,pods -n iris-demo"
-    ```
-    *(Or run `k9s` filtered to namespace `iris-demo`)*
-  - **Bottom Pane (Speaker Console)**: Run the demo commands or `./demo/run-demo.sh`.
+- **Pane 1 (Operator Manager Process)**:
+  Run the controller manager so it reconciles the cluster:
+  ```bash
+  # Inside op-dev VM:
+  cd /home/ubuntu/iris-backup-operator
+  ./bin/manager --webhook-port=-1
+  ```
+- **Pane 2 (Live Resource Dashboard)**:
+  Continuous watch of real-time cluster state:
+  ```bash
+  watch -n 1 "kubectl get backuppolicies,restoreverifications,volumesnapshots,pvc,pods -n iris-demo"
+  ```
+- **Pane 3 (Speaker Console)**:
+  Run the demo commands or `./demo/run-demo.sh`.
 
 ---
 

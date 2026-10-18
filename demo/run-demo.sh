@@ -24,6 +24,10 @@ banner() {
     echo -e "${CYAN}========================================================================${NC}"
 }
 
+# Pre-flight check: ensure operator manager is active or advise how to start it
+echo -e "${CYAN}Checking prerequisites...${NC}"
+kubectl apply -k "${SCRIPT_DIR}/../config/crd" >/dev/null 2>&1 || true
+
 banner "ACT 1: The Stateful Workload (Baseline)"
 echo "In Kubernetes, stateful workloads store data on PersistentVolumeClaims (PVCs)."
 echo "We are deploying a stateful service that commits transactions every 5 seconds."
@@ -61,6 +65,14 @@ for i in {1..60}; do
     READY=$(kubectl get backuppolicies.ops.leandro.ie -n iris-demo iris-backup-policy -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)
     if [ "${READY}" == "True" ]; then
         break
+    fi
+    if [ "$i" -eq 10 ]; then
+        FINALIZER=$(kubectl get backuppolicies.ops.leandro.ie -n iris-demo iris-backup-policy -o jsonpath='{.metadata.finalizers}' 2>/dev/null || true)
+        if [[ "${FINALIZER}" != *"backup-policy"* ]]; then
+            echo ""
+            echo -e "${YELLOW}>> Note: Operator manager is not reconciling yet.${NC}"
+            echo -e "${YELLOW}>> Ensure manager is running: './bin/manager --webhook-port=-1' or 'make run'${NC}"
+        fi
     fi
     sleep 2
     printf "."
