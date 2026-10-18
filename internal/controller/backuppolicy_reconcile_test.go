@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -86,7 +87,7 @@ var _ = Describe("BackupPolicy reconciler", func() {
 
 		result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result).To(Equal(reconcile.Result{}))
+		Expect(result.RequeueAfter).To(Equal(9 * time.Hour))
 
 		got := &opsv1alpha1.BackupPolicy{}
 		Expect(cl.Get(ctx, key, got)).To(Succeed())
@@ -95,7 +96,7 @@ var _ = Describe("BackupPolicy reconciler", func() {
 		By("reconciling again without a new generation")
 		result, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result).To(Equal(reconcile.Result{}))
+		Expect(result.RequeueAfter).To(Equal(9 * time.Hour))
 
 		unchanged := &opsv1alpha1.BackupPolicy{}
 		Expect(cl.Get(ctx, key, unchanged)).To(Succeed())
@@ -108,7 +109,7 @@ var _ = Describe("BackupPolicy reconciler", func() {
 
 		result, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result).To(Equal(reconcile.Result{}))
+		Expect(result.RequeueAfter).To(Equal(9 * time.Hour))
 
 		bumped := &opsv1alpha1.BackupPolicy{}
 		Expect(cl.Get(ctx, key, bumped)).To(Succeed())
@@ -118,7 +119,11 @@ var _ = Describe("BackupPolicy reconciler", func() {
 })
 
 func newReconciler(cl client.Client) *BackupPolicyReconciler {
-	return &BackupPolicyReconciler{Client: cl, Scheme: cl.Scheme()}
+	return &BackupPolicyReconciler{
+		Client: cl,
+		Scheme: cl.Scheme(),
+		Now:    func() time.Time { return time.Date(2026, 10, 18, 15, 0, 0, 0, time.UTC) },
+	}
 }
 
 func newBackupPolicy(name, namespace string, generation int64) *opsv1alpha1.BackupPolicy {

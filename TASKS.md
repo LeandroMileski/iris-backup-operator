@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **2.3**. `nextRun` returns the next backup time from a five-field cron schedule.
+Current step: **2.5**. Retention deletes owned VolumeSnapshots beyond the limit, oldest first, for each PVC.
 
 ## Phase 0: Environment
 
@@ -29,8 +29,10 @@ Current step: **2.3**. `nextRun` returns the next backup time from a five-field 
   - `make test` passed in `op-dev` (`internal/controller` coverage 83.3%). Fake-client tests cover a missing policy, a fetch error, `status.observedGeneration`, and `Ready=True` with reason `Reconciled`. A second reconcile of the same generation does not write status. A newer generation updates both fields. The envtest reconciler test asserts the same status.
 - [x] 2.2 Schedule logic as a pure function (`nextRun(schedule, last, now) (time.Time, error)`), table-driven tests including invalid cron and clock edge cases.
   - `make test` passed in `op-dev` (`internal/controller` coverage 88.9%). `TestNextRun` covers the first run, an exact boundary, one second before and after midnight, a missed interval, a future `last`, UTC normalization including a daylight-saving wall clock, leap day, day 31, the year boundary, weekdays, and step schedules. Invalid cases include an empty schedule, non-cron text, out-of-range fields, the wrong field count, a zero step, `@daily`, February 31, and a zero `now`.
-- [ ] 2.3 When a run is due, list PVCs from `targetSelector` and create a `VolumeSnapshot` per PVC with labels and an owner reference. Return `RequeueAfter` until the next run.
-- [ ] 2.4 Retention: delete snapshots beyond `retention`, oldest first. Test with envtest.
+- [x] 2.3 When a run is due, list PVCs from `targetSelector` and create a `VolumeSnapshot` per PVC with labels and an owner reference. Return `RequeueAfter` until the next run.
+  - `make test` passed in `op-dev` (`internal/controller` coverage 82.0%). A due policy snapshots only matching PVCs in its namespace. Each VolumeSnapshot carries policy, PVC, and schedule labels, an owner reference, and `volumeSnapshotClassName` when the policy sets one. A second pass over the same slot does not create another snapshot. Suspend, an invalid schedule, a selector with no PVCs, and a create error are covered. `status.lastSuccessfulBackupTime` is set to the run time so the next reconcile waits until the following slot.
+- [x] 2.4 Retention: delete snapshots beyond `retention`, oldest first. Test with envtest.
+  - `make test` passed in `op-dev` (`internal/controller` coverage 81.2%). An envtest policy with `retention: 2` keeps the two newest owned snapshots for a PVC and deletes the older one. A PVC under the limit is left alone, and a snapshot owned by another policy is left alone. Equal creation times are ordered by the scheduled instant, then by name. A missing `retention` uses 7.
 - [ ] 2.5 Finalizer: on policy deletion, clean up owned snapshots, then remove the finalizer.
 - [ ] 2.6 Status updates: conditions, `lastSuccessfulBackupTime`, Events for create/prune/failure. Use the status subresource and avoid update conflicts.
   - Accept: envtest integration tests cover create, retention, suspend, and delete paths.

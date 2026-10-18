@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -79,6 +80,7 @@ var _ = Describe("BackupPolicy Controller", func() {
 			controllerReconciler := &BackupPolicyReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Now:    func() time.Time { return time.Date(2026, 10, 18, 15, 0, 0, 0, time.UTC) },
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{
