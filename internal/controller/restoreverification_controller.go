@@ -51,13 +51,14 @@ type RestoreVerificationReconciler struct {
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications/finalizers,verbs=update
-// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create
-// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;delete
 // +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch
 
 // Reconcile moves a RestoreVerification one phase at a time.
 // An empty phase becomes Pending, and Pending becomes Running.
 // Running creates a PersistentVolumeClaim from the snapshot and a Pod that mounts it read-only.
+// A finished Pod records Succeeded or Failed from its exit code, then the Pod and claim are deleted.
 // Succeeded and Failed stay as they are.
 // A missing object is ignored so delete events do not return an error.
 func (r *RestoreVerificationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -85,7 +86,7 @@ func (r *RestoreVerificationReconciler) Reconcile(ctx context.Context, req ctrl.
 		log.Error(err, "Failed to advance RestoreVerification")
 		return ctrl.Result{}, err
 	}
-	if err := r.persistVerification(ctx, verification, next); err != nil {
+	if err := r.persistVerification(ctx, verification, next, ""); err != nil {
 		return ctrl.Result{}, err
 	}
 	if next == opsv1alpha1.RestoreVerificationPhasePending {
@@ -96,17 +97,35 @@ func (r *RestoreVerificationReconciler) Reconcile(ctx context.Context, req ctrl.
 			log.Error(err, "Failed to create restore resources")
 			return ctrl.Result{}, err
 		}
+		done, succeeded, message, err := r.observeVerificationPod(ctx, verification)
+		if err != nil {
+			return ctrl.Result{}, err
+		}
+		if !done {
+			return ctrl.Result{}, nil
+		}
+		next, err = advanceVerification(verification.Status.Phase, true, succeeded)
+		if err != nil {
+			log.Error(err, "Failed to advance RestoreVerification")
+			return ctrl.Result{}, err
+		}
+		if err := r.persistVerification(ctx, verification, next, message); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	if next == opsv1alpha1.RestoreVerificationPhaseSucceeded || next == opsv1alpha1.RestoreVerificationPhaseFailed {
+		return r.cleanupRestore(ctx, verification)
 	}
 	return ctrl.Result{}, nil
 }
 
 // persistVerification writes the phase, times, and conditions once.
 // A conflict retries against a fresh object so the status subresource update is not lost.
-func (r *RestoreVerificationReconciler) persistVerification(ctx context.Context, verification *opsv1alpha1.RestoreVerification, phase string) error {
+func (r *RestoreVerificationReconciler) persistVerification(ctx context.Context, verification *opsv1alpha1.RestoreVerification, phase, message string) error {
 	log := logf.FromContext(ctx)
 
 	original := verification.Status.DeepCopy()
-	applyVerificationStatus(verification, phase, r.now())
+	applyVerificationStatus(verification, phase, message, r.now())
 	if equality.Semantic.DeepEqual(original, &verification.Status) {
 		return nil
 	}
@@ -142,26 +161,38 @@ func (r *RestoreVerificationReconciler) persistVerification(ctx context.Context,
 	return err
 }
 
-func applyVerificationStatus(verification *opsv1alpha1.RestoreVerification, phase string, now time.Time) {
+func applyVerificationStatus(verification *opsv1alpha1.RestoreVerification, phase, message string, now time.Time) {
 	status := &verification.Status
 	status.ObservedGeneration = verification.Generation
 	if status.Phase != phase {
 		status.Phase = phase
+		if message == "" {
+			message = defaultVerificationMessage(phase)
+		}
+		status.Message = message
 		switch phase {
-		case opsv1alpha1.RestoreVerificationPhasePending:
-			status.Message = restoreVerificationPendingMessage
 		case opsv1alpha1.RestoreVerificationPhaseRunning:
-			status.Message = restoreVerificationRunningMessage
 			status.StartTime = &metav1.Time{Time: now.UTC()}
-		case opsv1alpha1.RestoreVerificationPhaseSucceeded:
-			status.Message = restoreVerificationSucceededMessage
-			status.CompletionTime = &metav1.Time{Time: now.UTC()}
-		case opsv1alpha1.RestoreVerificationPhaseFailed:
-			status.Message = restoreVerificationFailedMessage
+		case opsv1alpha1.RestoreVerificationPhaseSucceeded, opsv1alpha1.RestoreVerificationPhaseFailed:
 			status.CompletionTime = &metav1.Time{Time: now.UTC()}
 		}
 	}
 	applyVerificationConditions(verification)
+}
+
+func defaultVerificationMessage(phase string) string {
+	switch phase {
+	case opsv1alpha1.RestoreVerificationPhasePending:
+		return restoreVerificationPendingMessage
+	case opsv1alpha1.RestoreVerificationPhaseRunning:
+		return restoreVerificationRunningMessage
+	case opsv1alpha1.RestoreVerificationPhaseSucceeded:
+		return restoreVerificationSucceededMessage
+	case opsv1alpha1.RestoreVerificationPhaseFailed:
+		return restoreVerificationFailedMessage
+	default:
+		return ""
+	}
 }
 
 func applyVerificationConditions(verification *opsv1alpha1.RestoreVerification) {

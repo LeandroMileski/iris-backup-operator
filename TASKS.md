@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **3.3**. Interpret the pod result (exit code) into `.status`, then clean up the pod and PVC (always, even on failure).
+Current step: **3.4**. Policy controller creates a `RestoreVerification` after a successful backup when `verifyRestore` is true, and mirrors the latest result into `BackupPolicy.status.lastVerification`.
 
 ## Phase 0: Environment
 
@@ -45,7 +45,8 @@ Current step: **3.3**. Interpret the pod result (exit code) into `.status`, then
   - `make test` passed in `op-dev` (`internal/controller` coverage 81.8%). The spec names the VolumeSnapshot, the source claim, and the verification command. An empty phase becomes `Pending` and requeues; the next reconcile becomes `Running` and records `startTime`. A second reconcile of `Running` does not write status. `Succeeded` and `Failed` stay as recorded. `advanceVerification` moves `Running` to `Succeeded` or `Failed`, and rejects finishing `Pending` or changing a terminal phase. `Ready` is True only for `Succeeded`. `Degraded` is True only for `Failed`. A conflicting status write is retried. A missing object is ignored, and an unknown phase returns an error.
 - [x] 3.2 Restore: create a PVC from the snapshot (`dataSource`), then a verification pod mounting it read-only, running `verification.command` with a timeout.
   - `make test` passed in `op-dev` (`internal/controller` coverage 81.5%). A `Pending` verification does not create objects. Entering `Running` creates an owned PersistentVolumeClaim whose `dataSource` is the VolumeSnapshot, copying the source claim's access mode, storage request, and storage class. It then creates an owned Pod with `restartPolicy: Never`, `activeDeadlineSeconds` from `timeoutSeconds` (600 when unset), and the verification command. The Pod mounts that claim read-only at `/data`. A later reconcile leaves both objects in place. A missing snapshot, a missing source claim, or a source claim without a storage request returns an error and does not create the Pod.
-- [ ] 3.3 Interpret the pod result (exit code) into `.status`, then clean up the pod and PVC (always, even on failure).
+- [x] 3.3 Interpret the pod result (exit code) into `.status`, then clean up the pod and PVC (always, even on failure).
+  - `make test` passed in `op-dev` (`internal/controller` coverage 80.5%). A Pod that is still running leaves the verification `Running`. Exit code 0 sets `Succeeded`, `Ready=True`, and `completionTime`. A non-zero exit code sets `Failed` and `Degraded=True`. A deadline sets `Failed` with a timeout message. The status message records the exit code. After the result is stored, the verification Pod and the restored PersistentVolumeClaim are deleted. The source claim and the VolumeSnapshot stay. An object that is still terminating counts as deleted; if the delete does not stick, the reconcile tries again after 5 seconds. A result that was already recorded still deletes a leftover Pod and claim.
 - [ ] 3.4 Policy controller creates a `RestoreVerification` after a successful backup when `verifyRestore` is true, and mirrors the latest result into `BackupPolicy.status.lastVerification`.
   - Accept: e2e on kind: break the verification command and see `Degraded`; fix it and see recovery.
 

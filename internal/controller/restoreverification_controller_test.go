@@ -150,6 +150,7 @@ var _ = Describe("RestoreVerification reconciler", func() {
 		ctx = context.Background()
 		scheme = runtime.NewScheme()
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
+		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		verification = newRestoreVerification("check-data", "default", generation)
 		key = types.NamespacedName{Name: verification.Name, Namespace: verification.Namespace}
 		now = time.Date(2026, 10, 18, 16, 30, 0, 0, time.UTC)
@@ -196,7 +197,7 @@ var _ = Describe("RestoreVerification reconciler", func() {
 			object.Status.Phase = phase
 			object.Status.Message = "already finished"
 			object.Status.CompletionTime = &finished
-			applyVerificationStatus(object, phase, finished.Time)
+			applyVerificationStatus(object, phase, "", finished.Time)
 			cl := verificationClient(scheme, object)
 			objectKey := types.NamespacedName{Name: object.Name, Namespace: object.Namespace}
 
@@ -310,7 +311,7 @@ func finishVerification(ctx context.Context, reconciler *RestoreVerificationReco
 	if err != nil {
 		return err
 	}
-	return reconciler.persistVerification(ctx, verification, next)
+	return reconciler.persistVerification(ctx, verification, next, "")
 }
 
 func expectVerificationPhase(verification *opsv1alpha1.RestoreVerification, phase string) {
