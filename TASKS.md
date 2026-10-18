@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **5.4**. Operator image: distroless, non-root, pinned base image digest.
+Current step: **6.1**. Metrics: `backup_last_success_timestamp_seconds`, `backup_runs_total{result}`, `restore_verify_duration_seconds`, `snapshots_pruned_total`.
 
 ## Phase 0: Environment
 
@@ -69,7 +69,8 @@ Current step: **5.4**. Operator image: distroless, non-root, pinned base image d
   - `make test` passed in `op-dev` (`internal/controller` coverage 79.9%). A verification Pod runs as UID 65534 with `runAsNonRoot`, a read-only root filesystem, `allowPrivilegeEscalation: false`, dropped `ALL` capabilities, and `seccompProfile: RuntimeDefault` on the pod and the container. `automountServiceAccountToken` is false. CPU is limited to 100m and memory to 64Mi. The restored volume stays mounted read-only at `/data`.
 - [x] 5.3 `NetworkPolicy` that denies all traffic for verification pods. Prove it with a test.
   - `make manifests` added `get`, `create`, and `update` on `networkpolicies.networking.k8s.io`. `make test` passed in `op-dev` (`internal/controller` coverage 79.3%). Entering `Running` creates `iris-backup-verification-deny` in the verification namespace before the Pod. The policy selects only Pods that carry `ops.leandro.ie/restore-verification` and names `Ingress` and `Egress` with no allow rules. A second reconcile leaves the policy unchanged. A policy that has been given an allow-all ingress rule is restored to deny all. The policy is shared by every verification in the namespace and is not deleted with one verification.
-- [ ] 5.4 Operator image: distroless, non-root, pinned base image digest.
+- [x] 5.4 Operator image: distroless, non-root, pinned base image digest.
+  - The runtime stage is `gcr.io/distroless/static:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3`, the multi-arch index resolved on 2026-10-18. The builder is `golang:1.26` at `sha256:37cfcca63222ec499bec5e8ad7aad52dbf7529db36d5812b8eae2f0621aa92d6`. `USER 65532:65532` matches the distroless nonroot user. In `op-dev`, `docker build -t iris-backup-operator:phase-5.4 .` pulled both digests, and the image config user is `65532:65532` with entrypoint `/manager`. `docker run --rm iris-backup-operator:phase-5.4 --help` printed the manager flags. `.dockerignore` re-includes `cmd`, `api`, and `internal` so the classic builder can see the source.
 
 ## Phase 6: Observability
 

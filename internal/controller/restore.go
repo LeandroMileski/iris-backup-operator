@@ -71,6 +71,9 @@ func (r *RestoreVerificationReconciler) ensureRestore(ctx context.Context, verif
 	if err := r.createIfAbsent(ctx, pvc, "PersistentVolumeClaim"); err != nil {
 		return err
 	}
+	if err := r.ensureVerificationNetworkPolicy(ctx, verification.Namespace); err != nil {
+		return err
+	}
 
 	pod := newVerificationPod(verification, name)
 	if err := controllerutil.SetControllerReference(verification, pod, r.Scheme); err != nil {
