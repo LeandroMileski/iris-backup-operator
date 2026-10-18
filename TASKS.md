@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **3.4**. Policy controller creates a `RestoreVerification` after a successful backup when `verifyRestore` is true, and mirrors the latest result into `BackupPolicy.status.lastVerification`.
+Current step: **4.1**. Defaulting webhook (`retention`, `schedule` default, `suspend`).
 
 ## Phase 0: Environment
 
@@ -47,8 +47,9 @@ Current step: **3.4**. Policy controller creates a `RestoreVerification` after a
   - `make test` passed in `op-dev` (`internal/controller` coverage 81.5%). A `Pending` verification does not create objects. Entering `Running` creates an owned PersistentVolumeClaim whose `dataSource` is the VolumeSnapshot, copying the source claim's access mode, storage request, and storage class. It then creates an owned Pod with `restartPolicy: Never`, `activeDeadlineSeconds` from `timeoutSeconds` (600 when unset), and the verification command. The Pod mounts that claim read-only at `/data`. A later reconcile leaves both objects in place. A missing snapshot, a missing source claim, or a source claim without a storage request returns an error and does not create the Pod.
 - [x] 3.3 Interpret the pod result (exit code) into `.status`, then clean up the pod and PVC (always, even on failure).
   - `make test` passed in `op-dev` (`internal/controller` coverage 80.5%). A Pod that is still running leaves the verification `Running`. Exit code 0 sets `Succeeded`, `Ready=True`, and `completionTime`. A non-zero exit code sets `Failed` and `Degraded=True`. A deadline sets `Failed` with a timeout message. The status message records the exit code. After the result is stored, the verification Pod and the restored PersistentVolumeClaim are deleted. The source claim and the VolumeSnapshot stay. An object that is still terminating counts as deleted; if the delete does not stick, the reconcile tries again after 5 seconds. A result that was already recorded still deletes a leftover Pod and claim.
-- [ ] 3.4 Policy controller creates a `RestoreVerification` after a successful backup when `verifyRestore` is true, and mirrors the latest result into `BackupPolicy.status.lastVerification`.
+- [x] 3.4 Policy controller creates a `RestoreVerification` after a successful backup when `verifyRestore` is true, and mirrors the latest result into `BackupPolicy.status.lastVerification`.
   - Accept: e2e on kind: break the verification command and see `Degraded`; fix it and see recovery.
+  - `make test` passed in `op-dev` (`internal/controller` coverage 79.8%). A due backup with `verifyRestore: true` creates an owned `RestoreVerification` for each selected PVC. The object names the new VolumeSnapshot and copies the verification command. A second reconcile does not create another one. `verifyRestore` unset creates none. `verifyRestore` without a command fails the backup and does not set `lastSuccessfulBackupTime`. The newest finished verification is copied to `status.lastVerification`. A failed result sets `Ready=False` and `Degraded=True` with reason `VerificationFailed`. Changing the command and completing a newer verification as `Succeeded` sets `Ready=True` and `Degraded=False`. A newer verification that is still running leaves the previous failure in place. A verification owned by another policy is ignored. Envtest covers the failed command and the recovery. A kind end-to-end with a live verification Pod was not run; the current kube context is not the snapshot dev cluster.
 
 ## Phase 4: Admission webhooks
 
