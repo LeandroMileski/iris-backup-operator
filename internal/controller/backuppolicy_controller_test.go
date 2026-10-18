@@ -54,7 +54,12 @@ var _ = Describe("BackupPolicy Controller", func() {
 						Name:      resourceName,
 						Namespace: resourceNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: opsv1alpha1.BackupPolicySpec{
+						TargetSelector: metav1.LabelSelector{
+							MatchLabels: map[string]string{"app": "iris"},
+						},
+						Schedule: "0 0 * * *",
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}
@@ -80,8 +85,10 @@ var _ = Describe("BackupPolicy Controller", func() {
 				NamespacedName: typeNamespacedName,
 			})
 			Expect(err).NotTo(HaveOccurred())
-			// TODO(user): Add more specific assertions depending on your controller's reconciliation logic.
-			// Example: If you expect a certain status condition after reconciliation, verify it here.
+
+			updated := &opsv1alpha1.BackupPolicy{}
+			Expect(k8sClient.Get(ctx, typeNamespacedName, updated)).To(Succeed())
+			expectReady(updated)
 		})
 	})
 })

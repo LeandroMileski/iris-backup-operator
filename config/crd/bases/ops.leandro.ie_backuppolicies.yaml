@@ -14,10 +14,23 @@ spec:
     singular: backuppolicy
   scope: Namespaced
   versions:
-  - name: v1alpha1
+  - additionalPrinterColumns:
+    - description: Cron schedule for backup runs
+      jsonPath: .spec.schedule
+      name: Schedule
+      type: string
+    - description: Time of the last successful backup
+      jsonPath: .status.lastSuccessfulBackupTime
+      name: Last Backup
+      type: date
+    - description: Ready condition status
+      jsonPath: .status.conditions[?(@.type=='Ready')].status
+      name: Ready
+      type: string
+    name: v1alpha1
     schema:
       openAPIV3Schema:
-        description: BackupPolicy is the Schema for the backuppolicies API
+        description: BackupPolicy is the Schema for the backup policies API
         properties:
           apiVersion:
             description: |-
@@ -39,10 +52,107 @@ spec:
           spec:
             description: spec defines the desired state of BackupPolicy
             properties:
-              foo:
-                description: foo is an example field of BackupPolicy. Edit backuppolicy_types.go
-                  to remove/update
+              retention:
+                default: 7
+                description: retention is the number of snapshots to keep for each
+                  selected PVC. Defaults to 7.
+                format: int32
+                minimum: 1
+                type: integer
+              schedule:
+                description: schedule is a five-field cron expression for when a backup
+                  run is due.
+                minLength: 1
+                pattern: ^(\S+\s+){4}\S+$
                 type: string
+              snapshotClassName:
+                description: snapshotClassName is the VolumeSnapshotClass to use.
+                  When omitted, the controller uses the cluster default.
+                type: string
+              suspend:
+                default: false
+                description: suspend stops new backup runs when true. Defaults to
+                  false.
+                type: boolean
+              targetSelector:
+                description: targetSelector selects the PersistentVolumeClaims to
+                  snapshot.
+                properties:
+                  matchExpressions:
+                    description: matchExpressions is a list of label selector requirements.
+                      The requirements are ANDed.
+                    items:
+                      description: |-
+                        A label selector requirement is a selector that contains values, a key, and an operator that
+                        relates the key and values.
+                      properties:
+                        key:
+                          description: key is the label key that the selector applies
+                            to.
+                          type: string
+                        operator:
+                          description: |-
+                            operator represents a key's relationship to a set of values.
+                            Valid operators are In, NotIn, Exists and DoesNotExist.
+                          type: string
+                        values:
+                          description: |-
+                            values is an array of string values. If the operator is In or NotIn,
+                            the values array must be non-empty. If the operator is Exists or DoesNotExist,
+                            the values array must be empty. This array is replaced during a strategic
+                            merge patch.
+                          items:
+                            type: string
+                          type: array
+                          x-kubernetes-list-type: atomic
+                      required:
+                      - key
+                      - operator
+                      type: object
+                    type: array
+                    x-kubernetes-list-type: atomic
+                  matchLabels:
+                    additionalProperties:
+                      type: string
+                    description: |-
+                      matchLabels is a map of {key,value} pairs. A single {key,value} in the matchLabels
+                      map is equivalent to an element of matchExpressions, whose key field is "key", the
+                      operator is "In", and the values array contains only "value". The requirements are ANDed.
+                    type: object
+                type: object
+                x-kubernetes-map-type: atomic
+              verification:
+                description: verification is the image and command used when verifyRestore
+                  is true.
+                properties:
+                  command:
+                    description: command is the container command, in exec form, run
+                      against the restored volume.
+                    items:
+                      type: string
+                    minItems: 1
+                    type: array
+                  image:
+                    description: image is the container image that runs the verification
+                      command.
+                    type: string
+                  timeoutSeconds:
+                    description: timeoutSeconds is how long the command may run.
+                    format: int32
+                    minimum: 1
+                    type: integer
+                required:
+                - command
+                - image
+                type: object
+              verifyRestore:
+                default: false
+                description: verifyRestore creates a RestoreVerification after a successful
+                  backup when true. Defaults to false.
+                type: boolean
+            required:
+            - schedule
+            - targetSelector
             type: object
           status:
             description: status defines the observed state of BackupPolicy
@@ -50,13 +160,8 @@ spec:
               conditions:
                 description: |-
                   conditions represent the current state of the BackupPolicy resource.
-                  Each condition has a unique type and reflects the status of a specific aspect of the resource.
-
-                  Standard condition types include:
-                  - "Available": the resource is fully functional
-                  - "Progressing": the resource is being created or updated
-                  - "Degraded": the resource failed to reach or maintain its desired state
-
+                  Ready is True when the policy is reconciled and not failing.
+                  Degraded is True when the latest backup or verification failed.
                   The status of each condition is one of True, False, or Unknown.
                 items:
                   description: Condition contains details for one aspect of the current
@@ -116,6 +221,38 @@ spec:
                 x-kubernetes-list-map-keys:
                 - type
                 x-kubernetes-list-type: map
+              lastSuccessfulBackupTime:
+                description: lastSuccessfulBackupTime is when the most recent backup
+                  run finished successfully.
+                format: date-time
+                type: string
+              lastVerification:
+                description: lastVerification is the latest restore-verification result
+                  for this policy.
+                properties:
+                  completionTime:
+                    description: completionTime is when that verification finished.
+                    format: date-time
+                    type: string
+                  message:
+                    description: message is a human-readable summary of the result.
+                    type: string
+                  name:
+                    description: name is the RestoreVerification that produced this
+                      result.
+                    type: string
+                  result:
+                    description: result is Succeeded or Failed.
+                    enum:
+                    - Succeeded
+                    - Failed
+                    type: string
+                type: object
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
             type: object
         required:
         - spec

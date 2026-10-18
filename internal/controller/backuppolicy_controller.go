@@ -19,12 +19,20 @@ package controller
 import (
 	"context"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/meta"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	opsv1alpha1 "github.com/LeandroMileski/iris-backup-operator/api/v1alpha1"
+)
+
+const (
+	backupPolicyReasonReconciled  = "Reconciled"
+	backupPolicyReconciledMessage = "BackupPolicy is reconciled"
 )
 
 // BackupPolicyReconciler reconciles a BackupPolicy object
@@ -37,20 +45,46 @@ type BackupPolicyReconciler struct {
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies/status,verbs=get;update;patch
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies/finalizers,verbs=update
 
-// Reconcile is part of the main kubernetes reconciliation loop which aims to
-// move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the BackupPolicy object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.25.0/pkg/reconcile
+// Reconcile fetches the BackupPolicy and records that this generation was observed.
+// A missing policy is ignored so delete events do not return an error.
+// The initial Ready condition is True because the policy has been reconciled and nothing has failed yet.
 func (r *BackupPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	log := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	policy := &opsv1alpha1.BackupPolicy{}
+	if err := r.Get(ctx, req.NamespacedName, policy); err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("BackupPolicy not found, ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get BackupPolicy")
+		return ctrl.Result{}, err
+	}
 
+	log.Info("Reconciling BackupPolicy")
+
+	generationChanged := policy.Status.ObservedGeneration != policy.Generation
+	if generationChanged {
+		policy.Status.ObservedGeneration = policy.Generation
+	}
+
+	conditionChanged := meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
+		Type:               opsv1alpha1.BackupPolicyConditionReady,
+		Status:             metav1.ConditionTrue,
+		Reason:             backupPolicyReasonReconciled,
+		Message:            backupPolicyReconciledMessage,
+		ObservedGeneration: policy.Generation,
+	})
+	if !generationChanged && !conditionChanged {
+		return ctrl.Result{}, nil
+	}
+
+	if err := r.Status().Update(ctx, policy); err != nil {
+		log.Error(err, "Failed to update BackupPolicy status")
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Updated BackupPolicy status", "observedGeneration", policy.Generation)
 	return ctrl.Result{}, nil
 }
 
