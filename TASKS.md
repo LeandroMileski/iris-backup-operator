@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **4.2**. Validating webhook: cron syntax, `retention >= 1`, non-empty selector, verification fields required when `verifyRestore` is true.
+Current step: **5.1**. Review generated RBAC. Reduce to the minimum verbs and resources actually used, and justify each rule in `docs/rbac.md`.
 
 ## Phase 0: Environment
 
@@ -55,9 +55,11 @@ Current step: **4.2**. Validating webhook: cron syntax, `retention >= 1`, non-em
 
 - [x] 4.1 Defaulting webhook (`retention`, `schedule` default, `suspend`).
   - `make test` passed in `op-dev` (`internal/webhook/v1alpha1` coverage 100.0%). An empty `schedule` becomes `0 0 * * *`, an empty `retention` becomes 7, and an empty `suspend` becomes false. A schedule, retention, or suspend that is already set is left unchanged. Envtest admits a BackupPolicy without those fields and stores the defaults. The default install now includes the mutating webhook and the cert-manager certificate manifests.
-- [ ] 4.2 Validating webhook: cron syntax, `retention >= 1`, non-empty selector, verification fields required when `verifyRestore` is true.
-- [ ] 4.3 Webhook certificates via cert-manager. Unit tests for validation logic as plain functions.
+- [x] 4.2 Validating webhook: cron syntax, `retention >= 1`, non-empty selector, verification fields required when `verifyRestore` is true.
+  - `make test` passed in `op-dev` (`internal/webhook/v1alpha1` coverage 100.0%). `validateBackupPolicy` rejects a schedule the reconciler cannot run (empty, non-cron text, out-of-range fields, the wrong field count, a zero step, `@daily`, and February 31), retention that is missing, 0, or negative, an empty selector, a selector that does not parse, and `verifyRestore: true` without an image and command. One response lists every problem. A valid policy, a selector that uses only match expressions, and `verifyRestore` left unset are admitted. Deletion of an invalid policy is allowed. Envtest rejects `60 0 * * *`, an empty `targetSelector`, and `verifyRestore: true` without `verification`, and an update that breaks the schedule leaves the stored policy unchanged. A policy with a verification image and command is stored. The defaulting webhook still fills an empty schedule, retention, and suspend.
+- [x] 4.3 Webhook certificates via cert-manager. Unit tests for validation logic as plain functions.
   - Accept: invalid policies are rejected with clear messages; valid ones get defaults.
+  - `make test` passed in `op-dev` (`internal/webhook/v1alpha1` coverage 100.0%). `TestValidateBackupPolicy` rejects each invalid schedule, retention below 1, an empty or unparsable selector, and `verifyRestore` without image or command. Each failure is an Invalid status whose message names the field. `TestApplyBackupPolicyDefaults` fills an empty schedule, retention, and suspend, and leaves values that are already set. `TestDefaultedPolicyIsValid` accepts that defaulted policy and still rejects `not-a-cron`. Envtest stores the defaults for a sparse policy and rejects invalid creates and updates. `kubectl kustomize config/default` issues `webhook-server-cert` from `selfsigned-issuer` for `iris-backup-operator-webhook-service`, and both webhook configurations inject that CA.
 
 ## Phase 5: Security
 

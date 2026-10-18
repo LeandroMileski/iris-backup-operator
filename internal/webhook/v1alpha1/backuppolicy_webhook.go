@@ -22,6 +22,7 @@ import (
 
 	ctrl "sigs.k8s.io/controller-runtime"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
 	opsv1alpha1 "github.com/LeandroMileski/iris-backup-operator/api/v1alpha1"
 )
@@ -34,6 +35,7 @@ var backuppolicylog = logf.Log.WithName("backuppolicy-resource")
 func SetupBackupPolicyWebhookWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewWebhookManagedBy(mgr, &opsv1alpha1.BackupPolicy{}).
 		WithDefaulter(&BackupPolicyDefaulter{}).
+		WithValidator(&BackupPolicyValidator{}).
 		Complete()
 }
 
@@ -71,4 +73,44 @@ func applyBackupPolicyDefaults(policy *opsv1alpha1.BackupPolicy) {
 		suspend := false
 		policy.Spec.Suspend = &suspend
 	}
+}
+
+// TODO(user): change verbs to "verbs=create;update;delete" if you want to enable deletion validation.
+// NOTE: If you want to customise the 'path', use the flags '--defaulting-path' or '--validation-path'.
+// +kubebuilder:webhook:path=/validate-ops-leandro-ie-v1alpha1-backuppolicy,mutating=false,failurePolicy=fail,sideEffects=None,groups=ops.leandro.ie,resources=backuppolicies,verbs=create;update,versions=v1alpha1,name=vbackuppolicy-v1alpha1.kb.io,admissionReviewVersions=v1
+
+// BackupPolicyValidator struct is responsible for validating the BackupPolicy resource
+// when it is created, updated, or deleted.
+//
+// NOTE: The +kubebuilder:object:generate=false marker prevents controller-gen from generating DeepCopy methods,
+// as this struct is used only for temporary operations and does not need to be deeply copied.
+type BackupPolicyValidator struct {
+	// TODO(user): Add more fields as needed for validation
+}
+
+// ValidateCreate implements admission.Validator so a webhook will be registered for the type BackupPolicy.
+func (v *BackupPolicyValidator) ValidateCreate(_ context.Context, obj *opsv1alpha1.BackupPolicy) (admission.Warnings, error) {
+	backuppolicylog.Info("Validation for BackupPolicy upon creation", "name", obj.GetName())
+	return nil, denyInvalidBackupPolicy(obj)
+}
+
+// ValidateUpdate implements admission.Validator so a webhook will be registered for the type BackupPolicy.
+func (v *BackupPolicyValidator) ValidateUpdate(_ context.Context, oldObj, newObj *opsv1alpha1.BackupPolicy) (admission.Warnings, error) {
+	backuppolicylog.Info("Validation for BackupPolicy upon update", "name", newObj.GetName(), "previousGeneration", oldObj.GetGeneration())
+	return nil, denyInvalidBackupPolicy(newObj)
+}
+
+// ValidateDelete implements admission.Validator so a webhook will be registered for the type BackupPolicy.
+// Deletion is always allowed so an invalid policy can still be removed.
+func (v *BackupPolicyValidator) ValidateDelete(_ context.Context, obj *opsv1alpha1.BackupPolicy) (admission.Warnings, error) {
+	backuppolicylog.Info("Validation for BackupPolicy upon deletion", "name", obj.GetName())
+	return nil, nil
+}
+
+func denyInvalidBackupPolicy(policy *opsv1alpha1.BackupPolicy) error {
+	err := validateBackupPolicy(policy)
+	if err != nil {
+		backuppolicylog.Info("Denied BackupPolicy", "name", policy.GetName(), "reason", err.Error())
+	}
+	return err
 }
