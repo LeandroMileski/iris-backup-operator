@@ -108,6 +108,10 @@ type LastVerification struct {
 
 // BackupPolicyStatus defines the observed state of BackupPolicy.
 type BackupPolicyStatus struct {
+	// observedGeneration is the most recent generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+
 	// lastSuccessfulBackupTime is when the most recent backup run finished successfully.
 	// +optional
 	LastSuccessfulBackupTime *metav1.Time `json:"lastSuccessfulBackupTime,omitempty"`

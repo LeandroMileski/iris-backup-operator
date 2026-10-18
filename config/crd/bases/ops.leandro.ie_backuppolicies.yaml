@@ -248,6 +248,11 @@ spec:
                     - Failed
                     type: string
                 type: object
+              observedGeneration:
+                description: observedGeneration is the most recent generation observed
+                  by the controller.
+                format: int64
+                type: integer
             type: object
         required:
         - spec
