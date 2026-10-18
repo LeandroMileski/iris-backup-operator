@@ -26,12 +26,14 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	opsv1alpha1 "github.com/LeandroMileski/iris-backup-operator/api/v1alpha1"
 )
 
 const (
+	backupPolicyFinalizer         = "ops.leandro.ie/backup-policy"
 	backupPolicyReasonReconciled  = "Reconciled"
 	backupPolicyReconciledMessage = "BackupPolicy is reconciled"
 )
@@ -68,6 +70,13 @@ func (r *BackupPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	log.Info("Reconciling BackupPolicy")
+
+	if !policy.DeletionTimestamp.IsZero() {
+		return r.finalizeBackupPolicy(ctx, policy)
+	}
+	if err := r.ensureFinalizer(ctx, policy); err != nil {
+		return ctrl.Result{}, err
+	}
 
 	if err := r.syncObserved(ctx, policy); err != nil {
 		return ctrl.Result{}, err
@@ -122,6 +131,56 @@ func (r *BackupPolicyReconciler) scheduleBackup(ctx context.Context, policy *ops
 		return ctrl.Result{}, false, err
 	}
 	return ctrl.Result{RequeueAfter: following.Sub(now)}, true, nil
+}
+
+func (r *BackupPolicyReconciler) ensureFinalizer(ctx context.Context, policy *opsv1alpha1.BackupPolicy) error {
+	if controllerutil.ContainsFinalizer(policy, backupPolicyFinalizer) {
+		return nil
+	}
+	controllerutil.AddFinalizer(policy, backupPolicyFinalizer)
+	if err := r.Update(ctx, policy); err != nil {
+		logf.FromContext(ctx).Error(err, "Failed to add BackupPolicy finalizer")
+		return err
+	}
+	logf.FromContext(ctx).Info("Added BackupPolicy finalizer")
+	return nil
+}
+
+// finalizeBackupPolicy deletes every owned VolumeSnapshot, then removes the finalizer.
+// Snapshots that still exist keep the finalizer in place so deletion is retried.
+func (r *BackupPolicyReconciler) finalizeBackupPolicy(ctx context.Context, policy *opsv1alpha1.BackupPolicy) (ctrl.Result, error) {
+	log := logf.FromContext(ctx)
+
+	if !controllerutil.ContainsFinalizer(policy, backupPolicyFinalizer) {
+		return ctrl.Result{}, nil
+	}
+
+	owned, err := r.listOwnedSnapshots(ctx, policy)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	for i := range owned {
+		if err := r.deleteSnapshot(ctx, &owned[i], snapshotPVC(&owned[i])); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	remaining, err := r.listOwnedSnapshots(ctx, policy)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	if len(remaining) > 0 {
+		log.Info("Waiting for VolumeSnapshots to delete", "count", len(remaining))
+		return ctrl.Result{RequeueAfter: 5 * time.Second}, nil
+	}
+
+	controllerutil.RemoveFinalizer(policy, backupPolicyFinalizer)
+	if err := r.Update(ctx, policy); err != nil {
+		log.Error(err, "Failed to remove BackupPolicy finalizer")
+		return ctrl.Result{}, err
+	}
+	log.Info("Removed BackupPolicy finalizer")
+	return ctrl.Result{}, nil
 }
 
 func (r *BackupPolicyReconciler) now() time.Time {

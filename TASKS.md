@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **2.5**. Retention deletes owned VolumeSnapshots beyond the limit, oldest first, for each PVC.
+Current step: **2.6**. Deleting a BackupPolicy removes its owned VolumeSnapshots, then the finalizer.
 
 ## Phase 0: Environment
 
@@ -33,7 +33,8 @@ Current step: **2.5**. Retention deletes owned VolumeSnapshots beyond the limit,
   - `make test` passed in `op-dev` (`internal/controller` coverage 82.0%). A due policy snapshots only matching PVCs in its namespace. Each VolumeSnapshot carries policy, PVC, and schedule labels, an owner reference, and `volumeSnapshotClassName` when the policy sets one. A second pass over the same slot does not create another snapshot. Suspend, an invalid schedule, a selector with no PVCs, and a create error are covered. `status.lastSuccessfulBackupTime` is set to the run time so the next reconcile waits until the following slot.
 - [x] 2.4 Retention: delete snapshots beyond `retention`, oldest first. Test with envtest.
   - `make test` passed in `op-dev` (`internal/controller` coverage 81.2%). An envtest policy with `retention: 2` keeps the two newest owned snapshots for a PVC and deletes the older one. A PVC under the limit is left alone, and a snapshot owned by another policy is left alone. Equal creation times are ordered by the scheduled instant, then by name. A missing `retention` uses 7.
-- [ ] 2.5 Finalizer: on policy deletion, clean up owned snapshots, then remove the finalizer.
+- [x] 2.5 Finalizer: on policy deletion, clean up owned snapshots, then remove the finalizer.
+  - `make test` passed in `op-dev` (`internal/controller` coverage 79.2%). Envtest adds `ops.leandro.ie/backup-policy` on reconcile. Deleting the policy removes the owned VolumeSnapshot, leaves a snapshot owned by another policy, and removes the finalizer so the policy itself is deleted.
 - [ ] 2.6 Status updates: conditions, `lastSuccessfulBackupTime`, Events for create/prune/failure. Use the status subresource and avoid update conflicts.
   - Accept: envtest integration tests cover create, retention, suspend, and delete paths.
 

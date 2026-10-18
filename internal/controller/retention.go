@@ -62,17 +62,26 @@ func (r *BackupPolicyReconciler) pruneSnapshots(ctx context.Context, policy *ops
 
 	for _, pvcName := range pvcs {
 		for _, snapshot := range snapshotsToDelete(grouped[pvcName], limit) {
-			snapshot.SetGroupVersionKind(volumeSnapshotGVK)
-			if err := r.Delete(ctx, &snapshot); err != nil {
-				if apierrors.IsNotFound(err) {
-					continue
-				}
-				log.Error(err, "Failed to delete VolumeSnapshot", "snapshot", snapshot.GetName(), "pvc", pvcName)
+			if err := r.deleteSnapshot(ctx, &snapshot, pvcName); err != nil {
 				return err
 			}
-			log.Info("Deleted VolumeSnapshot", "snapshot", snapshot.GetName(), "pvc", pvcName)
 		}
 	}
+	return nil
+}
+
+func (r *BackupPolicyReconciler) deleteSnapshot(ctx context.Context, snapshot *unstructured.Unstructured, pvcName string) error {
+	log := logf.FromContext(ctx)
+
+	snapshot.SetGroupVersionKind(volumeSnapshotGVK)
+	if err := r.Delete(ctx, snapshot); err != nil {
+		if apierrors.IsNotFound(err) {
+			return nil
+		}
+		log.Error(err, "Failed to delete VolumeSnapshot", "snapshot", snapshot.GetName(), "pvc", pvcName)
+		return err
+	}
+	log.Info("Deleted VolumeSnapshot", "snapshot", snapshot.GetName(), "pvc", pvcName)
 	return nil
 }
 

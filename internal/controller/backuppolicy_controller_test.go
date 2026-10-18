@@ -67,13 +67,8 @@ var _ = Describe("BackupPolicy Controller", func() {
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &opsv1alpha1.BackupPolicy{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
 			By("Cleanup the specific resource instance BackupPolicy")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			finishPolicy(ctx, typeNamespacedName)
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")

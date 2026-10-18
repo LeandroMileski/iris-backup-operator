@@ -148,13 +148,7 @@ var _ = Describe("BackupPolicy retention", func() {
 			list.Items[i].SetGroupVersionKind(volumeSnapshotGVK)
 			Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &list.Items[i]))).To(Succeed())
 		}
-		current := &opsv1alpha1.BackupPolicy{}
-		err := k8sClient.Get(ctx, policyKey, current)
-		if apierrors.IsNotFound(err) {
-			return
-		}
-		Expect(err).NotTo(HaveOccurred())
-		Expect(k8sClient.Delete(ctx, current)).To(Succeed())
+		finishPolicy(ctx, policyKey)
 	})
 
 	It("deletes owned snapshots beyond retention, oldest first, for each PVC", func() {
