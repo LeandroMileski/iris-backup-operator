@@ -54,7 +54,12 @@ var _ = Describe("BackupPolicy Controller", func() {
 						Name:      resourceName,
 						Namespace: resourceNamespace,
 					},
-					// TODO(user): Specify other spec details if needed.
+					Spec: opsv1alpha1.BackupPolicySpec{
+						TargetSelector: metav1.LabelSelector{
+							MatchLabels: map[string]string{"app": "iris"},
+						},
+						Schedule: "0 0 * * *",
+					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())
 			}

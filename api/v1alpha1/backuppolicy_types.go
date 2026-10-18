@@ -78,22 +78,47 @@ type BackupPolicySpec struct {
 	Verification *Verification `json:"verification,omitempty"`
 }
 
+const (
+	// BackupPolicyConditionReady is True when the policy has been reconciled and is not failing.
+	BackupPolicyConditionReady = "Ready"
+
+	// BackupPolicyConditionDegraded is True when the latest backup or verification failed.
+	BackupPolicyConditionDegraded = "Degraded"
+)
+
+// LastVerification is the latest restore-verification result mirrored onto the policy.
+type LastVerification struct {
+	// name is the RestoreVerification that produced this result.
+	// +optional
+	Name string `json:"name,omitempty"`
+
+	// result is Succeeded or Failed.
+	// +kubebuilder:validation:Enum=Succeeded;Failed
+	// +optional
+	Result string `json:"result,omitempty"`
+
+	// completionTime is when that verification finished.
+	// +optional
+	CompletionTime *metav1.Time `json:"completionTime,omitempty"`
+
+	// message is a human-readable summary of the result.
+	// +optional
+	Message string `json:"message,omitempty"`
+}
+
 // BackupPolicyStatus defines the observed state of BackupPolicy.
 type BackupPolicyStatus struct {
-	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
-	// Important: Run "make" to regenerate code after modifying this file
+	// lastSuccessfulBackupTime is when the most recent backup run finished successfully.
+	// +optional
+	LastSuccessfulBackupTime *metav1.Time `json:"lastSuccessfulBackupTime,omitempty"`
 
-	// For Kubernetes API conventions, see:
-	// https://github.com/kubernetes/community/blob/master/contributors/devel/sig-architecture/api-conventions.md#typical-status-properties
+	// lastVerification is the latest restore-verification result for this policy.
+	// +optional
+	LastVerification *LastVerification `json:"lastVerification,omitempty"`
 
 	// conditions represent the current state of the BackupPolicy resource.
-	// Each condition has a unique type and reflects the status of a specific aspect of the resource.
-	//
-	// Standard condition types include:
-	// - "Available": the resource is fully functional
-	// - "Progressing": the resource is being created or updated
-	// - "Degraded": the resource failed to reach or maintain its desired state
-	//
+	// Ready is True when the policy is reconciled and not failing.
+	// Degraded is True when the latest backup or verification failed.
 	// The status of each condition is one of True, False, or Unknown.
 	// +listType=map
 	// +listMapKey=type
@@ -103,8 +128,11 @@ type BackupPolicyStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Schedule",type=string,JSONPath=".spec.schedule",description="Cron schedule for backup runs"
+// +kubebuilder:printcolumn:name="Last Backup",type=date,JSONPath=".status.lastSuccessfulBackupTime",description="Time of the last successful backup"
+// +kubebuilder:printcolumn:name="Ready",type=string,JSONPath=".status.conditions[?(@.type=='Ready')].status",description="Ready condition status"
 
-// BackupPolicy is the Schema for the backuppolicies API
+// BackupPolicy is the Schema for the backup policies API
 type BackupPolicy struct {
 	metav1.TypeMeta `json:",inline"`
 

@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **0.2**. Tools are installed in the Multipass VM `op-dev`. No kind cluster yet.
+Current step: **1.3**. BackupPolicy spec, status, and printer columns are defined. CRDs regenerated in `op-dev`.
 
 ## Phase 0: Environment
 
@@ -14,7 +14,10 @@ Current step: **0.2**. Tools are installed in the Multipass VM `op-dev`. No kind
 ## Phase 1: Scaffold and API
 
 - [x] 1.1 `kubebuilder init` and create the API (`BackupPolicy`, then `RestoreVerification`). Commit the untouched scaffold.
-- [] 1.2 Define the `BackupPolicy` spec and status types, with validation markers and printer columns (schedule, last backup, ready).
+- [x] 1.2 Define the `BackupPolicy` spec and status types, with validation markers and printer columns (schedule, last backup, ready).
+  - Spec: `targetSelector`, `schedule`, `retention`, `suspend`, `snapshotClassName`, `verifyRestore`, `verification`.
+  - Status: `lastSuccessfulBackupTime`, `lastVerification`, conditions `Ready` and `Degraded`.
+  - `kubectl get backuppolicies` columns: Schedule, Last Backup, Ready. `make manifests generate` and `make test` passed in `op-dev`.
 - [ ] 1.3 Run `make generate manifests` and sample CRs in `config/samples/`.
   - Accept: `make test` passes, CRD installs with `make install`, invalid samples are rejected by the API server.
 
@@ -60,14 +63,32 @@ Current step: **0.2**. Tools are installed in the Multipass VM `op-dev`. No kind
 ## Phase 7: Testing and CI
 
 - [ ] 7.1 Coverage report. Target meaningful coverage of pure logic (schedule, retention, validation) over line-count chasing.
-- [ ] 7.2 GitHub Actions: lint, unit + envtest, build image, e2e on kind.
-- [ ] 7.3 Release workflow: tag, build and push image, package Helm chart, create GitHub release.
+- [ ] 7.2 GitHub Actions PR CI workflow (`.github/workflows/ci.yaml`):
+  - Linting (`golangci-lint`, `go vet`).
+  - Manifest & codegen drift verification (`make manifests generate` with `git diff --exit-code`) to prevent desynchronized CRDs.
+  - Unit and integration tests with `envtest` (`make test`).
+  - Ephemeral Kind cluster E2E run (`make test-e2e`) verifying real PVC, CSI snapshot, and pod execution.
+- [ ] 7.3 Release workflow (`.github/workflows/release.yaml`):
+  - Triggered on semantic tags (`v*.*.*`).
+  - Multi-arch container image build (`linux/amd64`, `linux/arm64`) using Docker Buildx with pinned distroless base digest.
+  - Push image to registry (e.g., GitHub Packages / GHCR).
+  - Container image signing and provenance with Cosign.
 
-## Phase 8: Delivery
+## Phase 8: Delivery & GitOps (Argo CD)
 
-- [ ] 8.1 Helm chart for the operator (CRDs, RBAC, webhook, metrics), with a values schema.
-- [ ] 8.2 Argo CD `Application` manifest deploying the chart, plus a sample `BackupPolicy`.
-- [ ] 8.3 (Optional) Terraform for a small EKS cluster to run the e2e demo. Keep it separate under `deploy/terraform/` and document cost and teardown.
+- [ ] 8.1 GitOps directory structure (`deploy/`):
+  - Operator packaging using native Kustomize bases (`config/default`), avoiding GitOps churn by adding CI path exclusions (`paths-ignore: ['deploy/**']`).
+- [ ] 8.2 Argo CD `Application` manifest (`deploy/argocd/application.yaml`):
+  - Deploy operator to `iris-backup-operator-system`.
+  - Configure `ServerSideApply=true` to prevent CRD `last-applied-configuration` annotation size overflow (>262 KB limit).
+  - Configure `CreateNamespace=true`, automated sync with `prune: true` and `selfHeal: true`.
+  - Include sample `BackupPolicy` CR.
+- [ ] 8.3 Argo CD Custom Lua Health Checks:
+  - Add Lua health check script to `argocd-cm` ConfigMap for `ops.leandro.ie/BackupPolicy` and `RestoreVerification`.
+  - Map `.status.conditions` (`Ready`, `Degraded`) to Argo CD health states (`Healthy`, `Degraded`, `Progressing`).
+- [ ] 8.4 Automated image tag promotion:
+  - Configure automated semver tag detection and Git write-back (via `argocd-image-updater` or CI release step).
+- [ ] 8.5 (Optional) Terraform for a small EKS cluster to run the e2e demo. Keep it separate under `deploy/terraform/` and document cost and teardown.
 
 ## Phase 9: Documentation
 
@@ -75,3 +96,9 @@ Current step: **0.2**. Tools are installed in the Multipass VM `op-dev`. No kind
 - [ ] 9.2 `docs/runbook.md`: backup stuck, snapshots not ready, verification failing, webhook cert problems. Use real failure output captured during testing.
 - [ ] 9.3 `docs/design.md`: key decisions and trade-offs (why snapshots, why a child CR for verification, why no vendored types).
 - [ ] 9.4 Short demo recording or asciinema, linked from the README.
+
+## Future Improvements
+
+- [ ] Write a Helm chart for the operator (`deploy/helm/iris-backup-operator` via `kubebuilder edit --plugins=helm/v2-alpha`) when you need to distribute the operator to third parties or need custom values overrides across external users. For current internal GitOps delivery, native Kustomize (`config/default`) deployed via Argo CD is sufficient and reduces templating maintenance overhead.
+- [ ] Dedicated GitOps repository: Migrate from single-repo `deploy/` directory to an isolated GitOps control repository (`iris-gitops-infra`) once multi-cluster or multi-team environment promotions (dev -> staging -> prod) require segregated access controls.
+
