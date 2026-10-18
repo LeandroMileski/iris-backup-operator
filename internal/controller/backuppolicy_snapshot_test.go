@@ -26,6 +26,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -181,7 +182,8 @@ var _ = Describe("BackupPolicy snapshots", func() {
 		got := &opsv1alpha1.BackupPolicy{}
 		Expect(cl.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.LastSuccessfulBackupTime).To(BeNil())
-		expectReady(got)
+		expectCondition(got, opsv1alpha1.BackupPolicyConditionReady, metav1.ConditionTrue, backupPolicyReasonSuspended)
+		expectCondition(got, opsv1alpha1.BackupPolicyConditionDegraded, metav1.ConditionFalse, backupPolicyReasonSuspended)
 	})
 
 	It("returns the schedule error and creates no snapshots", func() {
@@ -193,6 +195,10 @@ var _ = Describe("BackupPolicy snapshots", func() {
 		_, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
 		Expect(err).To(MatchError(ContainSubstring("parse schedule")))
 		Expect(listSnapshots(ctx, cl)).To(BeEmpty())
+
+		got := &opsv1alpha1.BackupPolicy{}
+		Expect(cl.Get(ctx, key, got)).To(Succeed())
+		expectDegraded(got)
 	})
 
 	It("records a run when no PVC matches and does not create a snapshot", func() {
@@ -229,8 +235,22 @@ var _ = Describe("BackupPolicy snapshots", func() {
 		got := &opsv1alpha1.BackupPolicy{}
 		Expect(cl.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.LastSuccessfulBackupTime).To(BeNil())
+		expectDegraded(got)
 	})
 })
+
+func expectCondition(policy *opsv1alpha1.BackupPolicy, conditionType string, status metav1.ConditionStatus, reason string) {
+	condition := meta.FindStatusCondition(policy.Status.Conditions, conditionType)
+	Expect(condition).NotTo(BeNil())
+	Expect(condition.Status).To(Equal(status))
+	Expect(condition.Reason).To(Equal(reason))
+	Expect(condition.ObservedGeneration).To(Equal(policy.Generation))
+}
+
+func expectDegraded(policy *opsv1alpha1.BackupPolicy) {
+	expectCondition(policy, opsv1alpha1.BackupPolicyConditionReady, metav1.ConditionFalse, backupPolicyReasonBackupFailed)
+	expectCondition(policy, opsv1alpha1.BackupPolicyConditionDegraded, metav1.ConditionTrue, backupPolicyReasonBackupFailed)
+}
 
 func snapshotClient(scheme *runtime.Scheme, objects ...client.Object) client.Client {
 	return fake.NewClientBuilder().

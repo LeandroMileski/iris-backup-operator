@@ -23,6 +23,7 @@ import (
 	"slices"
 	"strconv"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -62,27 +63,32 @@ func (r *BackupPolicyReconciler) pruneSnapshots(ctx context.Context, policy *ops
 
 	for _, pvcName := range pvcs {
 		for _, snapshot := range snapshotsToDelete(grouped[pvcName], limit) {
-			if err := r.deleteSnapshot(ctx, &snapshot, pvcName); err != nil {
+			deleted, err := r.deleteSnapshot(ctx, &snapshot, pvcName)
+			if err != nil {
 				return err
+			}
+			if deleted {
+				r.event(policy, corev1.EventTypeNormal, backupPolicyReasonSnapshotPruned,
+					fmt.Sprintf("Deleted VolumeSnapshot %s for PersistentVolumeClaim %s", snapshot.GetName(), pvcName))
 			}
 		}
 	}
 	return nil
 }
 
-func (r *BackupPolicyReconciler) deleteSnapshot(ctx context.Context, snapshot *unstructured.Unstructured, pvcName string) error {
+func (r *BackupPolicyReconciler) deleteSnapshot(ctx context.Context, snapshot *unstructured.Unstructured, pvcName string) (bool, error) {
 	log := logf.FromContext(ctx)
 
 	snapshot.SetGroupVersionKind(volumeSnapshotGVK)
 	if err := r.Delete(ctx, snapshot); err != nil {
 		if apierrors.IsNotFound(err) {
-			return nil
+			return false, nil
 		}
 		log.Error(err, "Failed to delete VolumeSnapshot", "snapshot", snapshot.GetName(), "pvc", pvcName)
-		return err
+		return false, err
 	}
 	log.Info("Deleted VolumeSnapshot", "snapshot", snapshot.GetName(), "pvc", pvcName)
-	return nil
+	return true, nil
 }
 
 func (r *BackupPolicyReconciler) listOwnedSnapshots(ctx context.Context, policy *opsv1alpha1.BackupPolicy) ([]unstructured.Unstructured, error) {

@@ -20,10 +20,10 @@ import (
 	"context"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/api/meta"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -33,15 +33,21 @@ import (
 )
 
 const (
-	backupPolicyFinalizer         = "ops.leandro.ie/backup-policy"
-	backupPolicyReasonReconciled  = "Reconciled"
-	backupPolicyReconciledMessage = "BackupPolicy is reconciled"
+	backupPolicyFinalizer             = "ops.leandro.ie/backup-policy"
+	backupPolicyReasonReconciled      = "Reconciled"
+	backupPolicyReconciledMessage     = "BackupPolicy is reconciled"
+	backupPolicyReasonSuspended       = "Suspended"
+	backupPolicySuspendedMessage      = "BackupPolicy is suspended"
+	backupPolicyReasonBackupFailed    = "BackupFailed"
+	backupPolicyReasonSnapshotCreated = "SnapshotCreated"
+	backupPolicyReasonSnapshotPruned  = "SnapshotPruned"
 )
 
 // BackupPolicyReconciler reconciles a BackupPolicy object
 type BackupPolicyReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	Recorder record.EventRecorder
 	// Now supplies the current time. Tests set it; a nil Now uses time.Now.
 	Now func() time.Time
 }
@@ -51,9 +57,11 @@ type BackupPolicyReconciler struct {
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
 // +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
-// Reconcile fetches the BackupPolicy, records the observed generation, and creates VolumeSnapshots when a run is due.
-// It then deletes owned snapshots that exceed retention, oldest first, for each PVC.
+// Reconcile fetches the BackupPolicy, records status, and creates VolumeSnapshots when a run is due.
+// It deletes owned snapshots that exceed retention, oldest first, for each PVC.
 // A missing policy is ignored so delete events do not return an error.
 // The result asks to reconcile again at the next scheduled time.
 func (r *BackupPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -78,59 +86,73 @@ func (r *BackupPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 
-	if err := r.syncObserved(ctx, policy); err != nil {
-		return ctrl.Result{}, err
-	}
-
-	result, recordRun, err := r.scheduleBackup(ctx, policy)
+	progress, err := r.runBackup(ctx, policy)
 	if err != nil {
+		progress.failed = true
+		progress.message = err.Error()
+	}
+	if statusErr := r.persistStatus(ctx, policy, progress); statusErr != nil {
+		return ctrl.Result{}, statusErr
+	}
+	if err != nil {
+		r.event(policy, corev1.EventTypeWarning, backupPolicyReasonBackupFailed, "Backup failed: "+err.Error())
 		return ctrl.Result{}, err
 	}
-	if err := r.pruneSnapshots(ctx, policy); err != nil {
-		return ctrl.Result{}, err
-	}
-	if recordRun {
-		if err := r.Status().Update(ctx, policy); err != nil {
-			log.Error(err, "Failed to update BackupPolicy status")
-			return ctrl.Result{}, err
-		}
-		log.Info("Recorded backup run", "lastSuccessfulBackupTime", policy.Status.LastSuccessfulBackupTime.Time)
-	}
-	return result, nil
+	return progress.result, nil
 }
 
-// scheduleBackup creates snapshots when a run is due. The bool reports whether that run was recorded on the policy.
-func (r *BackupPolicyReconciler) scheduleBackup(ctx context.Context, policy *opsv1alpha1.BackupPolicy) (ctrl.Result, bool, error) {
+// runBackup creates snapshots when a run is due and prunes owned snapshots past retention.
+type backupProgress struct {
+	result    ctrl.Result
+	suspended bool
+	failed    bool
+	message   string
+	recorded  *time.Time
+}
+
+func (r *BackupPolicyReconciler) runBackup(ctx context.Context, policy *opsv1alpha1.BackupPolicy) (backupProgress, error) {
 	log := logf.FromContext(ctx)
 
 	if backupSuspended(policy) {
 		log.Info("BackupPolicy is suspended")
-		return ctrl.Result{}, false, nil
+		if err := r.pruneSnapshots(ctx, policy); err != nil {
+			return backupProgress{suspended: true}, err
+		}
+		return backupProgress{suspended: true}, nil
 	}
 
 	now := r.now()
 	next, err := nextRun(policy.Spec.Schedule, referenceTime(policy), now)
 	if err != nil {
 		log.Error(err, "Failed to determine next BackupPolicy run")
-		return ctrl.Result{}, false, err
+		return backupProgress{}, err
 	}
 	if next.After(now) {
 		delay := next.Sub(now)
 		log.V(1).Info("Backup run is not due", "requeueAfter", delay)
-		return ctrl.Result{RequeueAfter: delay}, false, nil
+		if err := r.pruneSnapshots(ctx, policy); err != nil {
+			return backupProgress{}, err
+		}
+		return backupProgress{result: ctrl.Result{RequeueAfter: delay}}, nil
 	}
 
 	if err := r.createSnapshots(ctx, policy, next); err != nil {
-		return ctrl.Result{}, false, err
+		return backupProgress{}, err
 	}
-	policy.Status.LastSuccessfulBackupTime = &metav1.Time{Time: now.UTC()}
+	if err := r.pruneSnapshots(ctx, policy); err != nil {
+		return backupProgress{}, err
+	}
+	recorded := now.UTC()
 
 	following, err := nextRun(policy.Spec.Schedule, now, now)
 	if err != nil {
 		log.Error(err, "Failed to determine next BackupPolicy run")
-		return ctrl.Result{}, false, err
+		return backupProgress{}, err
 	}
-	return ctrl.Result{RequeueAfter: following.Sub(now)}, true, nil
+	return backupProgress{
+		result:   ctrl.Result{RequeueAfter: following.Sub(now)},
+		recorded: &recorded,
+	}, nil
 }
 
 func (r *BackupPolicyReconciler) ensureFinalizer(ctx context.Context, policy *opsv1alpha1.BackupPolicy) error {
@@ -160,7 +182,7 @@ func (r *BackupPolicyReconciler) finalizeBackupPolicy(ctx context.Context, polic
 		return ctrl.Result{}, err
 	}
 	for i := range owned {
-		if err := r.deleteSnapshot(ctx, &owned[i], snapshotPVC(&owned[i])); err != nil {
+		if _, err := r.deleteSnapshot(ctx, &owned[i], snapshotPVC(&owned[i])); err != nil {
 			return ctrl.Result{}, err
 		}
 	}
@@ -190,33 +212,6 @@ func (r *BackupPolicyReconciler) now() time.Time {
 	return time.Now()
 }
 
-func (r *BackupPolicyReconciler) syncObserved(ctx context.Context, policy *opsv1alpha1.BackupPolicy) error {
-	log := logf.FromContext(ctx)
-
-	changed := policy.Status.ObservedGeneration != policy.Generation
-	if changed {
-		policy.Status.ObservedGeneration = policy.Generation
-	}
-	if meta.SetStatusCondition(&policy.Status.Conditions, metav1.Condition{
-		Type:               opsv1alpha1.BackupPolicyConditionReady,
-		Status:             metav1.ConditionTrue,
-		Reason:             backupPolicyReasonReconciled,
-		Message:            backupPolicyReconciledMessage,
-		ObservedGeneration: policy.Generation,
-	}) {
-		changed = true
-	}
-	if !changed {
-		return nil
-	}
-	if err := r.Status().Update(ctx, policy); err != nil {
-		log.Error(err, "Failed to update BackupPolicy status")
-		return err
-	}
-	log.Info("Updated BackupPolicy status", "observedGeneration", policy.Generation)
-	return nil
-}
-
 func backupSuspended(policy *opsv1alpha1.BackupPolicy) bool {
 	return policy.Spec.Suspend != nil && *policy.Spec.Suspend
 }
@@ -236,6 +231,9 @@ func referenceTime(policy *opsv1alpha1.BackupPolicy) time.Time {
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *BackupPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.Recorder == nil {
+		r.Recorder = mgr.GetEventRecorderFor("backuppolicy")
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&opsv1alpha1.BackupPolicy{}).
 		Named("backuppolicy").

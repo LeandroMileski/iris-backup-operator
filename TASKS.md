@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **2.6**. Deleting a BackupPolicy removes its owned VolumeSnapshots, then the finalizer.
+Current step: **3.1**. RestoreVerification controller skeleton and state machine (`Pending -> Running -> Succeeded|Failed`).
 
 ## Phase 0: Environment
 
@@ -35,8 +35,9 @@ Current step: **2.6**. Deleting a BackupPolicy removes its owned VolumeSnapshots
   - `make test` passed in `op-dev` (`internal/controller` coverage 81.2%). An envtest policy with `retention: 2` keeps the two newest owned snapshots for a PVC and deletes the older one. A PVC under the limit is left alone, and a snapshot owned by another policy is left alone. Equal creation times are ordered by the scheduled instant, then by name. A missing `retention` uses 7.
 - [x] 2.5 Finalizer: on policy deletion, clean up owned snapshots, then remove the finalizer.
   - `make test` passed in `op-dev` (`internal/controller` coverage 79.2%). Envtest adds `ops.leandro.ie/backup-policy` on reconcile. Deleting the policy removes the owned VolumeSnapshot, leaves a snapshot owned by another policy, and removes the finalizer so the policy itself is deleted.
-- [ ] 2.6 Status updates: conditions, `lastSuccessfulBackupTime`, Events for create/prune/failure. Use the status subresource and avoid update conflicts.
+- [x] 2.6 Status updates: conditions, `lastSuccessfulBackupTime`, Events for create/prune/failure. Use the status subresource and avoid update conflicts.
   - Accept: envtest integration tests cover create, retention, suspend, and delete paths.
+  - `make test` passed in `op-dev` (`internal/controller` coverage 80.3%). One status-subresource write sets `observedGeneration`, `Ready`, `Degraded`, and `lastSuccessfulBackupTime` after the backup work. A conflicting write is retried against a fresh object. A due envtest policy creates a VolumeSnapshot, records `lastSuccessfulBackupTime`, sets `Ready=True` and `Degraded=False` with reason `Reconciled`, and emits `SnapshotCreated`. A suspended policy creates no snapshot, sets both conditions to `Suspended`, and leaves `lastSuccessfulBackupTime` empty. Retention emits `SnapshotPruned` for the deleted snapshot. Deleting the policy still removes its owned snapshot and the finalizer. A create or prune error sets `Ready=False` and `Degraded=True` with reason `BackupFailed`, does not advance `lastSuccessfulBackupTime`, and emits a warning event.
 
 ## Phase 3: Verified restore
 

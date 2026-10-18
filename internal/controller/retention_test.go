@@ -28,6 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -156,13 +157,16 @@ var _ = Describe("BackupPolicy retention", func() {
 		policy.Status.LastSuccessfulBackupTime = &metav1.Time{Time: finished}
 		Expect(k8sClient.Status().Update(ctx, policy)).To(Succeed())
 
+		events := record.NewFakeRecorder(10)
 		result, err := (&BackupPolicyReconciler{
-			Client: k8sClient,
-			Scheme: k8sClient.Scheme(),
-			Now:    func() time.Time { return finished.Add(time.Minute) },
+			Client:   k8sClient,
+			Scheme:   k8sClient.Scheme(),
+			Recorder: events,
+			Now:      func() time.Time { return finished.Add(time.Minute) },
 		}).Reconcile(ctx, reconcile.Request{NamespacedName: policyKey})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
+		Expect(readEvents(events)).To(ContainElement(ContainSubstring("SnapshotPruned")))
 
 		Expect(snapshotExists(policyNamespace, snapshotName(policyName, dataPVC, time.Unix(1000, 0)))).To(BeFalse())
 		Expect(snapshotExists(policyNamespace, snapshotName(policyName, dataPVC, time.Unix(2000, 0)))).To(BeTrue())

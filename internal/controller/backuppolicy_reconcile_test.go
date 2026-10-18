@@ -152,4 +152,10 @@ func expectReady(policy *opsv1alpha1.BackupPolicy) {
 	Expect(ready.Message).To(Equal(backupPolicyReconciledMessage))
 	Expect(ready.ObservedGeneration).To(Equal(policy.Generation))
 	Expect(ready.LastTransitionTime.IsZero()).To(BeFalse())
+
+	degraded := meta.FindStatusCondition(policy.Status.Conditions, opsv1alpha1.BackupPolicyConditionDegraded)
+	Expect(degraded).NotTo(BeNil())
+	Expect(degraded.Status).To(Equal(metav1.ConditionFalse))
+	Expect(degraded.Reason).To(Equal(backupPolicyReasonReconciled))
+	Expect(degraded.ObservedGeneration).To(Equal(policy.Generation))
 }

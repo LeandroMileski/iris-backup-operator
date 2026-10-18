@@ -121,6 +121,8 @@ func (r *BackupPolicyReconciler) createSnapshot(ctx context.Context, policy *ops
 		return err
 	}
 	log.Info("Created VolumeSnapshot", "snapshot", snapshot.GetName(), "pvc", pvc.Name)
+	r.event(policy, corev1.EventTypeNormal, backupPolicyReasonSnapshotCreated,
+		fmt.Sprintf("Created VolumeSnapshot %s for PersistentVolumeClaim %s", snapshot.GetName(), pvc.Name))
 	return nil
 }
 
