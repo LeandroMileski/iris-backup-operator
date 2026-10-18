@@ -173,6 +173,23 @@ func expectRestorePod(pod *corev1.Pod, verification *opsv1alpha1.RestoreVerifica
 		MountPath: restoreVolumeMountPath,
 		ReadOnly:  true,
 	}))
+	Expect(pod.Spec.AutomountServiceAccountToken).NotTo(BeNil())
+	Expect(*pod.Spec.AutomountServiceAccountToken).To(BeFalse())
+	expectNonRoot(pod.Spec.SecurityContext)
+	Expect(pod.Spec.SecurityContext.SeccompProfile).NotTo(BeNil())
+	Expect(pod.Spec.SecurityContext.SeccompProfile.Type).To(Equal(corev1.SeccompProfileTypeRuntimeDefault))
+	Expect(container.SecurityContext).NotTo(BeNil())
+	expectNonRootContainer(container.SecurityContext)
+	Expect(container.SecurityContext.ReadOnlyRootFilesystem).NotTo(BeNil())
+	Expect(*container.SecurityContext.ReadOnlyRootFilesystem).To(BeTrue())
+	Expect(container.SecurityContext.AllowPrivilegeEscalation).NotTo(BeNil())
+	Expect(*container.SecurityContext.AllowPrivilegeEscalation).To(BeFalse())
+	Expect(container.SecurityContext.Capabilities).NotTo(BeNil())
+	Expect(container.SecurityContext.Capabilities.Drop).To(ConsistOf(corev1.Capability("ALL")))
+	Expect(container.SecurityContext.SeccompProfile).NotTo(BeNil())
+	Expect(container.SecurityContext.SeccompProfile.Type).To(Equal(corev1.SeccompProfileTypeRuntimeDefault))
+	Expect(container.Resources.Limits[corev1.ResourceCPU].Equal(resource.MustParse(verificationCPULimit))).To(BeTrue())
+	Expect(container.Resources.Limits[corev1.ResourceMemory].Equal(resource.MustParse(verificationMemoryLimit))).To(BeTrue())
 	Expect(pod.Spec.Volumes).To(ConsistOf(corev1.Volume{
 		Name: restoreVolumeName,
 		VolumeSource: corev1.VolumeSource{
@@ -184,4 +201,19 @@ func expectRestorePod(pod *corev1.Pod, verification *opsv1alpha1.RestoreVerifica
 	}))
 	Expect(pod.Labels).To(HaveKeyWithValue(labelRestoreVerification, verification.Name))
 	Expect(metav1.IsControlledBy(pod, verification)).To(BeTrue())
+}
+
+func expectNonRoot(security *corev1.PodSecurityContext) {
+	Expect(security).NotTo(BeNil())
+	Expect(security.RunAsNonRoot).NotTo(BeNil())
+	Expect(*security.RunAsNonRoot).To(BeTrue())
+	Expect(security.RunAsUser).NotTo(BeNil())
+	Expect(*security.RunAsUser).To(Equal(verificationRunAsUser))
+}
+
+func expectNonRootContainer(security *corev1.SecurityContext) {
+	Expect(security.RunAsNonRoot).NotTo(BeNil())
+	Expect(*security.RunAsNonRoot).To(BeTrue())
+	Expect(security.RunAsUser).NotTo(BeNil())
+	Expect(*security.RunAsUser).To(Equal(verificationRunAsUser))
 }

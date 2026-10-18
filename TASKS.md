@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **5.2**. Verification pods: non-root, read-only root filesystem, dropped capabilities, `seccompProfile: RuntimeDefault`, no service account token, resource limits.
+Current step: **5.3**. `NetworkPolicy` that denies all traffic for verification pods. Prove it with a test.
 
 ## Phase 0: Environment
 
@@ -65,7 +65,8 @@ Current step: **5.2**. Verification pods: non-root, read-only root filesystem, d
 
 - [x] 5.1 Review generated RBAC. Reduce to the minimum verbs and resources actually used, and justify each rule in `docs/rbac.md`.
   - `make manifests` regenerated `config/rbac/role.yaml` from the markers. `make test` passed in `op-dev`. The manager role no longer grants create, delete, or patch on BackupPolicy, patch or get on status, update, patch, or delete on RestoreVerification, its finalizers, `watch` on VolumeSnapshots, or `events.k8s.io`. Leader election keeps `get`, `create`, and `update` on leases. Each remaining rule is justified in `docs/rbac.md`.
-- [ ] 5.2 Verification pods: non-root, read-only root filesystem, dropped capabilities, `seccompProfile: RuntimeDefault`, no service account token, resource limits.
+- [x] 5.2 Verification pods: non-root, read-only root filesystem, dropped capabilities, `seccompProfile: RuntimeDefault`, no service account token, resource limits.
+  - `make test` passed in `op-dev` (`internal/controller` coverage 79.9%). A verification Pod runs as UID 65534 with `runAsNonRoot`, a read-only root filesystem, `allowPrivilegeEscalation: false`, dropped `ALL` capabilities, and `seccompProfile: RuntimeDefault` on the pod and the container. `automountServiceAccountToken` is false. CPU is limited to 100m and memory to 64Mi. The restored volume stays mounted read-only at `/data`.
 - [ ] 5.3 `NetworkPolicy` that denies all traffic for verification pods. Prove it with a test.
 - [ ] 5.4 Operator image: distroless, non-root, pinned base image digest.
 

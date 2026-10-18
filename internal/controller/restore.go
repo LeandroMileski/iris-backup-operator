@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -39,6 +40,11 @@ const (
 	restoreVolumeMountPath     = "/data"
 	restoreContainerName       = "verify"
 	defaultVerificationTimeout = int64(600)
+
+	// verificationRunAsUser is nobody. The image user is not trusted.
+	verificationRunAsUser   int64 = 65534
+	verificationCPULimit          = "100m"
+	verificationMemoryLimit       = "64Mi"
 )
 
 // ensureRestore creates the PersistentVolumeClaim restored from the snapshot and the verification Pod.
@@ -142,6 +148,11 @@ func newRestorePVC(verification *opsv1alpha1.RestoreVerification, source *corev1
 
 func newVerificationPod(verification *opsv1alpha1.RestoreVerification, claimName string) *corev1.Pod {
 	timeout := verificationTimeout(verification)
+	runAsUser := verificationRunAsUser
+	runAsNonRoot := true
+	readOnlyRoot := true
+	allowPrivilegeEscalation := false
+	automountToken := false
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      claimName,
@@ -149,12 +160,38 @@ func newVerificationPod(verification *opsv1alpha1.RestoreVerification, claimName
 			Labels:    restoreLabels(verification.Name),
 		},
 		Spec: corev1.PodSpec{
-			RestartPolicy:         corev1.RestartPolicyNever,
-			ActiveDeadlineSeconds: &timeout,
+			RestartPolicy:                corev1.RestartPolicyNever,
+			ActiveDeadlineSeconds:        &timeout,
+			AutomountServiceAccountToken: &automountToken,
+			SecurityContext: &corev1.PodSecurityContext{
+				RunAsNonRoot: &runAsNonRoot,
+				RunAsUser:    &runAsUser,
+				SeccompProfile: &corev1.SeccompProfile{
+					Type: corev1.SeccompProfileTypeRuntimeDefault,
+				},
+			},
 			Containers: []corev1.Container{{
 				Name:    restoreContainerName,
 				Image:   verification.Spec.Verification.Image,
 				Command: append([]string(nil), verification.Spec.Verification.Command...),
+				SecurityContext: &corev1.SecurityContext{
+					RunAsNonRoot:             &runAsNonRoot,
+					RunAsUser:                &runAsUser,
+					ReadOnlyRootFilesystem:   &readOnlyRoot,
+					AllowPrivilegeEscalation: &allowPrivilegeEscalation,
+					Capabilities: &corev1.Capabilities{
+						Drop: []corev1.Capability{"ALL"},
+					},
+					SeccompProfile: &corev1.SeccompProfile{
+						Type: corev1.SeccompProfileTypeRuntimeDefault,
+					},
+				},
+				Resources: corev1.ResourceRequirements{
+					Limits: corev1.ResourceList{
+						corev1.ResourceCPU:    resource.MustParse(verificationCPULimit),
+						corev1.ResourceMemory: resource.MustParse(verificationMemoryLimit),
+					},
+				},
 				VolumeMounts: []corev1.VolumeMount{{
 					Name:      restoreVolumeName,
 					MountPath: restoreVolumeMountPath,
