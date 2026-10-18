@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **5.3**. `NetworkPolicy` that denies all traffic for verification pods. Prove it with a test.
+Current step: **5.4**. Operator image: distroless, non-root, pinned base image digest.
 
 ## Phase 0: Environment
 
@@ -67,7 +67,8 @@ Current step: **5.3**. `NetworkPolicy` that denies all traffic for verification 
   - `make manifests` regenerated `config/rbac/role.yaml` from the markers. `make test` passed in `op-dev`. The manager role no longer grants create, delete, or patch on BackupPolicy, patch or get on status, update, patch, or delete on RestoreVerification, its finalizers, `watch` on VolumeSnapshots, or `events.k8s.io`. Leader election keeps `get`, `create`, and `update` on leases. Each remaining rule is justified in `docs/rbac.md`.
 - [x] 5.2 Verification pods: non-root, read-only root filesystem, dropped capabilities, `seccompProfile: RuntimeDefault`, no service account token, resource limits.
   - `make test` passed in `op-dev` (`internal/controller` coverage 79.9%). A verification Pod runs as UID 65534 with `runAsNonRoot`, a read-only root filesystem, `allowPrivilegeEscalation: false`, dropped `ALL` capabilities, and `seccompProfile: RuntimeDefault` on the pod and the container. `automountServiceAccountToken` is false. CPU is limited to 100m and memory to 64Mi. The restored volume stays mounted read-only at `/data`.
-- [ ] 5.3 `NetworkPolicy` that denies all traffic for verification pods. Prove it with a test.
+- [x] 5.3 `NetworkPolicy` that denies all traffic for verification pods. Prove it with a test.
+  - `make manifests` added `get`, `create`, and `update` on `networkpolicies.networking.k8s.io`. `make test` passed in `op-dev` (`internal/controller` coverage 79.3%). Entering `Running` creates `iris-backup-verification-deny` in the verification namespace before the Pod. The policy selects only Pods that carry `ops.leandro.ie/restore-verification` and names `Ingress` and `Egress` with no allow rules. A second reconcile leaves the policy unchanged. A policy that has been given an allow-all ingress rule is restored to deny all. The policy is shared by every verification in the namespace and is not deleted with one verification.
 - [ ] 5.4 Operator image: distroless, non-root, pinned base image digest.
 
 ## Phase 6: Observability

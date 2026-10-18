@@ -24,6 +24,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -150,6 +151,7 @@ var _ = Describe("RestoreVerification result reconciler", func() {
 		scheme = runtime.NewScheme()
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		Expect(networkingv1.AddToScheme(scheme)).To(Succeed())
 		verification = newRestoreVerification("check-data", "default", 1)
 		verification.Status.Phase = opsv1alpha1.RestoreVerificationPhaseRunning
 		key = types.NamespacedName{Name: verification.Name, Namespace: verification.Namespace}

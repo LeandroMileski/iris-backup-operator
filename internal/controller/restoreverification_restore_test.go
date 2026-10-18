@@ -25,6 +25,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,6 +67,7 @@ var _ = Describe("RestoreVerification restore", func() {
 		scheme = runtime.NewScheme()
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
+		Expect(networkingv1.AddToScheme(scheme)).To(Succeed())
 		verification = newRestoreVerification("check-data", "default", 1)
 		verification.Status.Phase = opsv1alpha1.RestoreVerificationPhaseRunning
 		key = types.NamespacedName{Name: verification.Name, Namespace: verification.Namespace}
@@ -114,6 +116,30 @@ var _ = Describe("RestoreVerification restore", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(cl.Get(ctx, client.ObjectKeyFromObject(pod), pod)).To(Succeed())
 		Expect(pod.ResourceVersion).To(Equal(created))
+
+		policy := &networkingv1.NetworkPolicy{}
+		Expect(cl.Get(ctx, types.NamespacedName{Name: verificationNetworkPolicyName, Namespace: verification.Namespace}, policy)).To(Succeed())
+		Expect(policy.Spec.Ingress).To(BeEmpty())
+		Expect(policy.Spec.Egress).To(BeEmpty())
+		Expect(policy.Spec.PolicyTypes).To(Equal([]networkingv1.PolicyType{
+			networkingv1.PolicyTypeIngress,
+			networkingv1.PolicyTypeEgress,
+		}))
+		Expect(policy.ResourceVersion).To(Equal("1"))
+	})
+
+	It("removes allow rules from the verification NetworkPolicy", func() {
+		opened := newVerificationNetworkPolicy(verification.Namespace)
+		opened.Spec.Ingress = []networkingv1.NetworkPolicyIngressRule{{}}
+		cl := restoreClient(scheme, verification, restoreSourcePVC(), restoreSnapshot(verification.Namespace), opened)
+
+		_, err := newVerificationReconciler(cl, now).Reconcile(ctx, reconcile.Request{NamespacedName: key})
+		Expect(err).NotTo(HaveOccurred())
+
+		policy := &networkingv1.NetworkPolicy{}
+		Expect(cl.Get(ctx, client.ObjectKeyFromObject(opened), policy)).To(Succeed())
+		Expect(policy.Spec.Ingress).To(BeEmpty())
+		Expect(policy.Spec.Egress).To(BeEmpty())
 	})
 })
 
