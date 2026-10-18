@@ -40,6 +40,9 @@ func (r *BackupPolicyReconciler) persistStatus(ctx context.Context, policy *opsv
 	if progress.recorded != nil {
 		policy.Status.LastSuccessfulBackupTime = &metav1.Time{Time: progress.recorded.UTC()}
 	}
+	if progress.mirrored {
+		policy.Status.LastVerification = progress.lastVerification
+	}
 	r.applyConditions(policy, progress)
 	if equality.Semantic.DeepEqual(original, &policy.Status) {
 		return nil
@@ -93,6 +96,14 @@ func (r *BackupPolicyReconciler) applyConditions(policy *opsv1alpha1.BackupPolic
 		degraded.Status = metav1.ConditionTrue
 		degraded.Reason = backupPolicyReasonBackupFailed
 		degraded.Message = progress.message
+	case progress.verificationFailed:
+		message := verificationFailureMessage(progress)
+		ready.Status = metav1.ConditionFalse
+		ready.Reason = backupPolicyReasonVerificationFailed
+		ready.Message = message
+		degraded.Status = metav1.ConditionTrue
+		degraded.Reason = backupPolicyReasonVerificationFailed
+		degraded.Message = message
 	case progress.suspended:
 		ready.Status = metav1.ConditionTrue
 		ready.Reason = backupPolicyReasonSuspended
@@ -110,6 +121,13 @@ func (r *BackupPolicyReconciler) applyConditions(policy *opsv1alpha1.BackupPolic
 	}
 	meta.SetStatusCondition(&policy.Status.Conditions, ready)
 	meta.SetStatusCondition(&policy.Status.Conditions, degraded)
+}
+
+func verificationFailureMessage(progress backupProgress) string {
+	if progress.lastVerification != nil && progress.lastVerification.Message != "" {
+		return progress.lastVerification.Message
+	}
+	return "Restore verification failed"
 }
 
 func (r *BackupPolicyReconciler) event(obj runtime.Object, eventType, reason, message string) {

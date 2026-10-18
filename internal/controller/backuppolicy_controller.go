@@ -33,14 +33,16 @@ import (
 )
 
 const (
-	backupPolicyFinalizer             = "ops.leandro.ie/backup-policy"
-	backupPolicyReasonReconciled      = "Reconciled"
-	backupPolicyReconciledMessage     = "BackupPolicy is reconciled"
-	backupPolicyReasonSuspended       = "Suspended"
-	backupPolicySuspendedMessage      = "BackupPolicy is suspended"
-	backupPolicyReasonBackupFailed    = "BackupFailed"
-	backupPolicyReasonSnapshotCreated = "SnapshotCreated"
-	backupPolicyReasonSnapshotPruned  = "SnapshotPruned"
+	backupPolicyFinalizer                 = "ops.leandro.ie/backup-policy"
+	backupPolicyReasonReconciled          = "Reconciled"
+	backupPolicyReconciledMessage         = "BackupPolicy is reconciled"
+	backupPolicyReasonSuspended           = "Suspended"
+	backupPolicySuspendedMessage          = "BackupPolicy is suspended"
+	backupPolicyReasonBackupFailed        = "BackupFailed"
+	backupPolicyReasonVerificationFailed  = "VerificationFailed"
+	backupPolicyReasonSnapshotCreated     = "SnapshotCreated"
+	backupPolicyReasonSnapshotPruned      = "SnapshotPruned"
+	backupPolicyReasonVerificationCreated = "VerificationCreated"
 )
 
 // BackupPolicyReconciler reconciles a BackupPolicy object
@@ -57,6 +59,7 @@ type BackupPolicyReconciler struct {
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=backuppolicies/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch
 // +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;watch;create;delete
+// +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 // +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch
 
@@ -87,6 +90,9 @@ func (r *BackupPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	}
 
 	progress, err := r.runBackup(ctx, policy)
+	if syncErr := r.mirrorVerification(ctx, policy, &progress); syncErr != nil && err == nil {
+		err = syncErr
+	}
 	if err != nil {
 		progress.failed = true
 		progress.message = err.Error()
@@ -103,11 +109,14 @@ func (r *BackupPolicyReconciler) Reconcile(ctx context.Context, req ctrl.Request
 
 // runBackup creates snapshots when a run is due and prunes owned snapshots past retention.
 type backupProgress struct {
-	result    ctrl.Result
-	suspended bool
-	failed    bool
-	message   string
-	recorded  *time.Time
+	result             ctrl.Result
+	suspended          bool
+	failed             bool
+	verificationFailed bool
+	message            string
+	recorded           *time.Time
+	mirrored           bool
+	lastVerification   *opsv1alpha1.LastVerification
 }
 
 func (r *BackupPolicyReconciler) runBackup(ctx context.Context, policy *opsv1alpha1.BackupPolicy) (backupProgress, error) {
@@ -140,6 +149,9 @@ func (r *BackupPolicyReconciler) runBackup(ctx context.Context, policy *opsv1alp
 		return backupProgress{}, err
 	}
 	if err := r.pruneSnapshots(ctx, policy); err != nil {
+		return backupProgress{}, err
+	}
+	if err := r.createVerifications(ctx, policy, next); err != nil {
 		return backupProgress{}, err
 	}
 	recorded := now.UTC()
@@ -236,6 +248,7 @@ func (r *BackupPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&opsv1alpha1.BackupPolicy{}).
+		Owns(&opsv1alpha1.RestoreVerification{}).
 		Named("backuppolicy").
 		Complete(r)
 }
