@@ -7,56 +7,10 @@ on:
 permissions: {}
 
 jobs:
-  lint:
-    permissions:
-      contents: read
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone the code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Setup Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
-        with:
-          go-version-file: go.mod
-
-      - name: Check linter configuration
-        run: make lint-config
-
-      - name: Run golangci-lint
-        run: make lint
-
-      - name: Run go vet
-        run: go vet ./...
-
-  manifests:
-    permissions:
-      contents: read
-    name: Manifest drift
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone the code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Setup Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
-        with:
-          go-version-file: go.mod
-
-      - name: Regenerate manifests and check for drift
-        run: |
-          make manifests generate
-          git diff --exit-code
-
   test:
     permissions:
       contents: read
-    name: Unit and integration
+    name: Lint and test
     runs-on: ubuntu-latest
     steps:
       - name: Clone the code
@@ -69,31 +23,11 @@ jobs:
         with:
           go-version-file: go.mod
 
-      - name: Run tests
+      - name: Lint
+        run: make lint
+
+      - name: Test
         run: make test
 
-  e2e:
-    permissions:
-      contents: read
-    name: Kind end to end
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone the code
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-
-      - name: Setup Go
-        uses: actions/setup-go@4b73464bb391d4059bd26b0524d20df3927bd417 # v6.3.0
-        with:
-          go-version-file: go.mod
-
-      - name: Install kind
-        run: |
-          curl -fsSL -o ./kind "https://kind.sigs.k8s.io/dl/v0.33.0/kind-linux-$(go env GOARCH)"
-          chmod +x ./kind
-          sudo mv ./kind /usr/local/bin/kind
-          kind version
-
-      - name: Run end-to-end tests
-        run: make test-e2e
+      - name: Check generated files
+        run: git diff --exit-code

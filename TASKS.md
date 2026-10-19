@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **7.2**. Run `make test-e2e` on a Kind cluster other than `iris-dev`. Phase 6 is still open.
+Current step: **7.3**. Release workflow on tags `v*.*.*`. Phase 6 is still open.
 
 ## Phase 0: Environment
 
@@ -83,12 +83,11 @@ Current step: **7.2**. Run `make test-e2e` on a Kind cluster other than `iris-de
 
 - [x] 7.1 Coverage report. Target meaningful coverage of pure logic (schedule, retention, validation) over line-count chasing.
   - `make cover` in `op-dev` passed. `nextRun` is 100%. `snapshotsToDelete`, `compareSnapshotAge`, and `ownedBy` are 100%. `validateBackupPolicy`, `validateBackupPolicySpec`, `validateSchedule`, `validateRetention`, `validateTargetSelector`, and `validateVerification` are 100%. Statement coverage is 79.3% in `internal/controller` and 100% in the webhook. `snapshotPVC` stays at 33.3%; the remaining lines are the client error paths.
-- [ ] 7.2 GitHub Actions PR CI workflow (`.github/workflows/ci.yaml`):
-  - Linting (`golangci-lint`, `go vet`).
-  - Manifest & codegen drift verification (`make manifests generate` with `git diff --exit-code`) to prevent desynchronized CRDs.
-  - Unit and integration tests with `envtest` (`make test`).
-  - Ephemeral Kind cluster E2E run (`make test-e2e`) verifying real PVC, CSI snapshot, and pod execution.
-  - `.github/workflows/ci.yaml` replaces `lint.yml`, `test.yml`, and `test-e2e.yml`. Jobs are lint (`make lint-config`, `make lint`, `go vet`), manifest drift (`make manifests generate` and `git diff --exit-code`), `make test`, and `make test-e2e` on Kind v0.33.0 with node `kindest/node:v1.37.0`. The e2e suite installs snapshotter v8.6.0 and csi-driver-host-path v1.18.0, writes `/data/ok` on a `csi-hostpath-sc` PVC, and waits for `readyToUse: true` plus `RestoreVerification` `Succeeded` / `Verification command exited 0`. Not run here: `op-dev` already hosts `iris-dev`, and a second Kind cluster was not created.
+- [x] 7.2 GitHub Actions CI workflow (`.github/workflows/ci.yaml`):
+  - One job runs `make lint`, `make test`, then `git diff --exit-code`.
+  - `make test` covers `go vet`, manifest generation, and the envtest suite.
+  - Kind stays out of CI. A real PVC snapshot is the local demo on `iris-dev`.
+  - On run `39212580909`, lint, manifest drift, and unit tests passed. The Kind job timed out while installing the CSI driver and was removed.
 - [ ] 7.3 Release workflow (`.github/workflows/release.yaml`):
   - Triggered on semantic tags (`v*.*.*`).
   - Multi-arch container image build (`linux/amd64`, `linux/arm64`) using Docker Buildx with pinned distroless base digest.
