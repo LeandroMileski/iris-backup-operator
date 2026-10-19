@@ -35,14 +35,14 @@ import (
 var _ = Describe("BackupPolicy finalizer", func() {
 	const (
 		policyName      = "finalizer-policy"
-		policyNamespace = "default"
-		pvcName         = "data"
+		policyNamespace = testNamespace
+		pvcName         = restoreVolumeName
 	)
 
 	var policyKey types.NamespacedName
 
 	BeforeEach(func() {
-		policy := newBackupPolicy(policyName, policyNamespace, 1)
+		policy := newBackupPolicy(policyName, 1)
 		policyKey = types.NamespacedName{Name: policyName, Namespace: policyNamespace}
 		Expect(k8sClient.Create(ctx, policy)).To(Succeed())
 	})
@@ -78,8 +78,8 @@ var _ = Describe("BackupPolicy finalizer", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(result).To(Equal(reconcile.Result{}))
 
-		Expect(snapshotExists(policyNamespace, snapshotName(policyName, pvcName, time.Unix(1000, 0)))).To(BeFalse())
-		Expect(snapshotExists(policyNamespace, snapshotName(policyName, pvcName, time.Unix(500, 0)))).To(BeTrue())
+		Expect(snapshotExists(snapshotName(policyName, pvcName, time.Unix(1000, 0)))).To(BeFalse())
+		Expect(snapshotExists(snapshotName(policyName, pvcName, time.Unix(500, 0)))).To(BeTrue())
 
 		err = k8sClient.Get(ctx, policyKey, &opsv1alpha1.BackupPolicy{})
 		Expect(apierrors.IsNotFound(err)).To(BeTrue())

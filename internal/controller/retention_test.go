@@ -28,7 +28,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
@@ -112,8 +112,8 @@ func agedSnapshot(name string, created metav1.Time, scheduled int64) unstructure
 var _ = Describe("BackupPolicy retention", func() {
 	const (
 		policyName      = "retention-policy"
-		policyNamespace = "default"
-		dataPVC         = "data"
+		policyNamespace = testNamespace
+		dataPVC         = restoreVolumeName
 		logsPVC         = "logs"
 	)
 
@@ -124,9 +124,9 @@ var _ = Describe("BackupPolicy retention", func() {
 
 	BeforeEach(func() {
 		retention := int32(2)
-		policy = newBackupPolicy(policyName, policyNamespace, 1)
+		policy = newBackupPolicy(policyName, 1)
 		policy.Spec.Retention = &retention
-		policy.Spec.Schedule = "0 0 * * *"
+		policy.Spec.Schedule = testSchedule
 		policyKey = types.NamespacedName{Name: policyName, Namespace: policyNamespace}
 		Expect(k8sClient.Create(ctx, policy)).To(Succeed())
 
@@ -157,7 +157,7 @@ var _ = Describe("BackupPolicy retention", func() {
 		policy.Status.LastSuccessfulBackupTime = &metav1.Time{Time: finished}
 		Expect(k8sClient.Status().Update(ctx, policy)).To(Succeed())
 
-		events := record.NewFakeRecorder(10)
+		events := events.NewFakeRecorder(10)
 		result, err := (&BackupPolicyReconciler{
 			Client:   k8sClient,
 			Scheme:   k8sClient.Scheme(),
@@ -168,11 +168,11 @@ var _ = Describe("BackupPolicy retention", func() {
 		Expect(result.RequeueAfter).To(BeNumerically(">", 0))
 		Expect(readEvents(events)).To(ContainElement(ContainSubstring("SnapshotPruned")))
 
-		Expect(snapshotExists(policyNamespace, snapshotName(policyName, dataPVC, time.Unix(1000, 0)))).To(BeFalse())
-		Expect(snapshotExists(policyNamespace, snapshotName(policyName, dataPVC, time.Unix(2000, 0)))).To(BeTrue())
-		Expect(snapshotExists(policyNamespace, snapshotName(policyName, dataPVC, time.Unix(3000, 0)))).To(BeTrue())
-		Expect(snapshotExists(policyNamespace, snapshotName(policyName, logsPVC, time.Unix(1000, 0)))).To(BeTrue())
-		Expect(snapshotExists(policyNamespace, snapshotName(policyName, dataPVC, time.Unix(500, 0)))).To(BeTrue())
+		Expect(snapshotExists(snapshotName(policyName, dataPVC, time.Unix(1000, 0)))).To(BeFalse())
+		Expect(snapshotExists(snapshotName(policyName, dataPVC, time.Unix(2000, 0)))).To(BeTrue())
+		Expect(snapshotExists(snapshotName(policyName, dataPVC, time.Unix(3000, 0)))).To(BeTrue())
+		Expect(snapshotExists(snapshotName(policyName, logsPVC, time.Unix(1000, 0)))).To(BeTrue())
+		Expect(snapshotExists(snapshotName(policyName, dataPVC, time.Unix(500, 0)))).To(BeTrue())
 	})
 })
 
@@ -201,10 +201,10 @@ func createForeignSnapshot(policy *opsv1alpha1.BackupPolicy, pvcName string, sch
 	Expect(k8sClient.Create(ctx, snapshot)).To(Succeed())
 }
 
-func snapshotExists(namespace, name string) bool {
+func snapshotExists(name string) bool {
 	snapshot := &unstructured.Unstructured{}
 	snapshot.SetGroupVersionKind(volumeSnapshotGVK)
-	err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, snapshot)
+	err := k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, snapshot)
 	if err == nil {
 		return true
 	}

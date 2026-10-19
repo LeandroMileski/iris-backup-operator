@@ -42,7 +42,7 @@ import (
 
 func TestSnapshotName(t *testing.T) {
 	scheduled := time.Unix(10, 0).UTC()
-	if got := snapshotName("daily", "data", scheduled); got != "daily-data-10" {
+	if got := snapshotName("daily", restoreVolumeName, scheduled); got != "daily-data-10" {
 		t.Fatalf("snapshotName() = %s, want daily-data-10", got)
 	}
 
@@ -58,7 +58,7 @@ func TestSnapshotName(t *testing.T) {
 var _ = Describe("BackupPolicy snapshots", func() {
 	const (
 		policyName      = "daily"
-		policyNamespace = "default"
+		policyNamespace = testNamespace
 		policyUID       = types.UID("policy-uid")
 	)
 
@@ -84,15 +84,15 @@ var _ = Describe("BackupPolicy snapshots", func() {
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 
 		class = "csi-hostpath-snapclass"
-		policy = newBackupPolicy(policyName, policyNamespace, 1)
+		policy = newBackupPolicy(policyName, 1)
 		policy.UID = policyUID
 		policy.CreationTimestamp = metav1.NewTime(sundayAfternoon)
 		policy.Spec.SnapshotClassName = &class
 		key = types.NamespacedName{Name: policyName, Namespace: policyNamespace}
 
-		matching = pvc(policyNamespace, "data", "iris")
+		matching = pvc(policyNamespace, restoreVolumeName, appIris)
 		other = pvc(policyNamespace, "other", "web")
-		elsewhere = pvc("other", "data", "iris")
+		elsewhere = pvc("other", restoreVolumeName, appIris)
 	})
 
 	It("creates a VolumeSnapshot for each selected PVC when a run is due", func() {
@@ -265,7 +265,7 @@ func pvc(namespace, name, app string) *corev1.PersistentVolumeClaim {
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
 			Namespace: namespace,
-			Labels:    map[string]string{"app": app},
+			Labels:    map[string]string{labelApp: app},
 		},
 	}
 }

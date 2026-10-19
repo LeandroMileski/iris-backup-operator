@@ -38,7 +38,7 @@ import (
 
 func TestVerificationObjectName(t *testing.T) {
 	scheduled := time.Unix(10, 0).UTC()
-	if got := verificationObjectName("daily", "data", scheduled); got != "verify-daily-data-10" {
+	if got := verificationObjectName("daily", restoreVolumeName, scheduled); got != "verify-daily-data-10" {
 		t.Fatalf("verificationObjectName() = %s, want verify-daily-data-10", got)
 	}
 	long := verificationObjectName(strings.Repeat("a", 200), strings.Repeat("b", 200), scheduled)
@@ -50,7 +50,7 @@ func TestVerificationObjectName(t *testing.T) {
 var _ = Describe("BackupPolicy verification", func() {
 	const (
 		policyName      = "daily"
-		policyNamespace = "default"
+		policyNamespace = testNamespace
 		policyUID       = types.UID("policy-uid")
 	)
 
@@ -70,15 +70,15 @@ var _ = Describe("BackupPolicy verification", func() {
 		scheme = runtime.NewScheme()
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
-		policy = newBackupPolicy(policyName, policyNamespace, 1)
+		policy = newBackupPolicy(policyName, 1)
 		policy.UID = policyUID
 		policy.CreationTimestamp = metav1.NewTime(sundayAfternoon)
 		key = types.NamespacedName{Name: policyName, Namespace: policyNamespace}
 	})
 
 	It("creates a RestoreVerification for the snapshot when verifyRestore is true", func() {
-		enableVerification(policy, []string{"false"})
-		cl := policyClient(scheme, policy, pvc(policyNamespace, "data", "iris"), pvc(policyNamespace, "other", "web"))
+		enableVerification(policy, []string{cmdFalse})
+		cl := policyClient(scheme, policy, pvc(policyNamespace, restoreVolumeName, appIris), pvc(policyNamespace, "other", "web"))
 		reconciler := newReconciler(cl)
 		reconciler.Now = func() time.Time { return mondayMorning }
 
@@ -88,10 +88,10 @@ var _ = Describe("BackupPolicy verification", func() {
 		got := listVerifications(ctx, cl)
 		Expect(got).To(HaveLen(1))
 		verification := got[0]
-		Expect(verification.Name).To(Equal(verificationObjectName(policyName, "data", time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC))))
-		Expect(verification.Spec.SnapshotName).To(Equal(snapshotName(policyName, "data", time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC))))
-		Expect(verification.Spec.PersistentVolumeClaimName).To(Equal("data"))
-		Expect(verification.Spec.Verification.Command).To(Equal([]string{"false"}))
+		Expect(verification.Name).To(Equal(verificationObjectName(policyName, restoreVolumeName, time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC))))
+		Expect(verification.Spec.SnapshotName).To(Equal(snapshotName(policyName, restoreVolumeName, time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC))))
+		Expect(verification.Spec.PersistentVolumeClaimName).To(Equal(restoreVolumeName))
+		Expect(verification.Spec.Verification.Command).To(Equal([]string{cmdFalse}))
 		Expect(metav1.IsControlledBy(&verification, policy)).To(BeTrue())
 
 		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
@@ -100,7 +100,7 @@ var _ = Describe("BackupPolicy verification", func() {
 	})
 
 	It("does not create a RestoreVerification when verifyRestore is unset", func() {
-		cl := policyClient(scheme, policy, pvc(policyNamespace, "data", "iris"))
+		cl := policyClient(scheme, policy, pvc(policyNamespace, restoreVolumeName, appIris))
 		reconciler := newReconciler(cl)
 		reconciler.Now = func() time.Time { return mondayMorning }
 
@@ -112,7 +112,7 @@ var _ = Describe("BackupPolicy verification", func() {
 	It("returns an error when verifyRestore is true and verification is missing", func() {
 		enabled := true
 		policy.Spec.VerifyRestore = &enabled
-		cl := policyClient(scheme, policy, pvc(policyNamespace, "data", "iris"))
+		cl := policyClient(scheme, policy, pvc(policyNamespace, restoreVolumeName, appIris))
 		reconciler := newReconciler(cl)
 		reconciler.Now = func() time.Time { return mondayMorning }
 
@@ -126,8 +126,8 @@ var _ = Describe("BackupPolicy verification", func() {
 	})
 
 	It("marks the policy Degraded when the latest verification failed and recovers when a newer one succeeds", func() {
-		enableVerification(policy, []string{"false"})
-		cl := policyClient(scheme, policy, pvc(policyNamespace, "data", "iris"))
+		enableVerification(policy, []string{cmdFalse})
+		cl := policyClient(scheme, policy, pvc(policyNamespace, restoreVolumeName, appIris))
 		now := mondayMorning
 		reconciler := newReconciler(cl)
 		reconciler.Now = func() time.Time { return now }
@@ -145,7 +145,7 @@ var _ = Describe("BackupPolicy verification", func() {
 		expectVerificationFailed(got, failed[0].Name, verificationExitMessage(1))
 
 		Expect(cl.Get(ctx, key, policy)).To(Succeed())
-		policy.Spec.Verification.Command = []string{"true"}
+		policy.Spec.Verification.Command = []string{cmdTrue}
 		Expect(cl.Update(ctx, policy)).To(Succeed())
 		now = tuesdayMorning
 		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
@@ -160,7 +160,7 @@ var _ = Describe("BackupPolicy verification", func() {
 			}
 		}
 		Expect(recovered).NotTo(BeNil())
-		Expect(recovered.Spec.Verification.Command).To(Equal([]string{"true"}))
+		Expect(recovered.Spec.Verification.Command).To(Equal([]string{cmdTrue}))
 
 		Expect(cl.Get(ctx, key, got)).To(Succeed())
 		expectVerificationFailed(got, failed[0].Name, verificationExitMessage(1))
@@ -176,10 +176,10 @@ var _ = Describe("BackupPolicy verification", func() {
 	})
 
 	It("keeps a failed result while a newer verification is still running", func() {
-		enableVerification(policy, []string{"false"})
+		enableVerification(policy, []string{cmdFalse})
 		policy.Status.LastSuccessfulBackupTime = &metav1.Time{Time: mondayMorning}
-		failedVerification := finishedPolicyVerification(policy, "data", mondayMorning, opsv1alpha1.RestoreVerificationPhaseFailed, verificationExitMessage(1))
-		runningVerification := finishedPolicyVerification(policy, "data", tuesdayMorning, opsv1alpha1.RestoreVerificationPhaseRunning, "")
+		failedVerification := finishedPolicyVerification(policy, restoreVolumeName, mondayMorning, opsv1alpha1.RestoreVerificationPhaseFailed, verificationExitMessage(1))
+		runningVerification := finishedPolicyVerification(policy, restoreVolumeName, tuesdayMorning, opsv1alpha1.RestoreVerificationPhaseRunning, "")
 		runningVerification.Status.Phase = opsv1alpha1.RestoreVerificationPhaseRunning
 		runningVerification.Status.CompletionTime = nil
 		Expect(controllerutil.SetControllerReference(policy, failedVerification, scheme)).To(Succeed())
@@ -197,10 +197,10 @@ var _ = Describe("BackupPolicy verification", func() {
 	})
 
 	It("ignores a verification owned by another policy", func() {
-		other := newBackupPolicy("other", policyNamespace, 1)
+		other := newBackupPolicy("other", 1)
 		other.UID = "other-uid"
-		enableVerification(other, []string{"false"})
-		foreign := finishedPolicyVerification(other, "data", mondayMorning, opsv1alpha1.RestoreVerificationPhaseFailed, verificationExitMessage(1))
+		enableVerification(other, []string{cmdFalse})
+		foreign := finishedPolicyVerification(other, restoreVolumeName, mondayMorning, opsv1alpha1.RestoreVerificationPhaseFailed, verificationExitMessage(1))
 		Expect(controllerutil.SetControllerReference(other, foreign, scheme)).To(Succeed())
 		cl := policyClient(scheme, policy, foreign)
 		reconciler := newReconciler(cl)
@@ -218,7 +218,7 @@ var _ = Describe("BackupPolicy verification", func() {
 var _ = Describe("BackupPolicy verification envtest", func() {
 	const (
 		policyName = "verify-daily"
-		namespace  = "default"
+		namespace  = testNamespace
 		pvcName    = "verify-source"
 	)
 
@@ -226,12 +226,12 @@ var _ = Describe("BackupPolicy verification envtest", func() {
 
 	BeforeEach(func() {
 		key = types.NamespacedName{Name: policyName, Namespace: namespace}
-		policy := newBackupPolicy(policyName, namespace, 0)
-		policy.Spec.TargetSelector.MatchLabels = map[string]string{"app": policyName}
-		enableVerification(policy, []string{"false"})
+		policy := newBackupPolicy(policyName, 0)
+		policy.Spec.TargetSelector.MatchLabels = map[string]string{labelApp: policyName}
+		enableVerification(policy, []string{cmdFalse})
 		Expect(k8sClient.Create(ctx, policy)).To(Succeed())
 		claim := backupPVC(pvcName)
-		claim.Labels = map[string]string{"app": policyName}
+		claim.Labels = map[string]string{labelApp: policyName}
 		Expect(k8sClient.Create(ctx, claim)).To(Succeed())
 	})
 
@@ -256,7 +256,7 @@ var _ = Describe("BackupPolicy verification envtest", func() {
 		Expect(err).NotTo(HaveOccurred())
 		verifications := verificationsFor(ctx, k8sClient, namespace, policyName)
 		Expect(verifications).To(HaveLen(1))
-		Expect(verifications[0].Spec.Verification.Command).To(Equal([]string{"false"}))
+		Expect(verifications[0].Spec.Verification.Command).To(Equal([]string{cmdFalse}))
 		finishOwnedVerification(ctx, k8sClient, &verifications[0], opsv1alpha1.RestoreVerificationPhaseFailed, now, verificationExitMessage(1))
 
 		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
@@ -266,7 +266,7 @@ var _ = Describe("BackupPolicy verification envtest", func() {
 		expectVerificationFailed(got, verifications[0].Name, verificationExitMessage(1))
 
 		Expect(k8sClient.Get(ctx, key, got)).To(Succeed())
-		got.Spec.Verification.Command = []string{"true"}
+		got.Spec.Verification.Command = []string{cmdTrue}
 		Expect(k8sClient.Update(ctx, got)).To(Succeed())
 		now = now.Add(48 * time.Hour)
 		_, err = reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: key})
@@ -276,7 +276,7 @@ var _ = Describe("BackupPolicy verification envtest", func() {
 		Expect(verifications).To(HaveLen(2))
 		var recovered *opsv1alpha1.RestoreVerification
 		for i := range verifications {
-			if verifications[i].Spec.Verification.Command[0] == "true" {
+			if verifications[i].Spec.Verification.Command[0] == cmdTrue {
 				recovered = &verifications[i]
 			}
 		}

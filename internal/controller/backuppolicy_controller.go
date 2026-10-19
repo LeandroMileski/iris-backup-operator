@@ -23,7 +23,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -43,13 +43,16 @@ const (
 	backupPolicyReasonSnapshotCreated     = "SnapshotCreated"
 	backupPolicyReasonSnapshotPruned      = "SnapshotPruned"
 	backupPolicyReasonVerificationCreated = "VerificationCreated"
+	// verificationPendingRequeue is how soon a Pending verification is reconciled again.
+	// RequeueAfter is required; a zero delay is not a requeue.
+	verificationPendingRequeue = time.Millisecond
 )
 
 // BackupPolicyReconciler reconciles a BackupPolicy object
 type BackupPolicyReconciler struct {
 	client.Client
 	Scheme   *runtime.Scheme
-	Recorder record.EventRecorder
+	Recorder events.EventRecorder
 	// Now supplies the current time. Tests set it; a nil Now uses time.Now.
 	Now func() time.Time
 }
@@ -61,6 +64,7 @@ type BackupPolicyReconciler struct {
 // +kubebuilder:rbac:groups=snapshot.storage.k8s.io,resources=volumesnapshots,verbs=get;list;create;delete
 // +kubebuilder:rbac:groups=ops.leandro.ie,resources=restoreverifications,verbs=get;list;watch;create
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
+// +kubebuilder:rbac:groups=events.k8s.io,resources=events,verbs=create;patch;update
 
 // Reconcile fetches the BackupPolicy, records status, and creates VolumeSnapshots when a run is due.
 // It deletes owned snapshots that exceed retention, oldest first, for each PVC.
@@ -243,7 +247,7 @@ func referenceTime(policy *opsv1alpha1.BackupPolicy) time.Time {
 // SetupWithManager sets up the controller with the Manager.
 func (r *BackupPolicyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	if r.Recorder == nil {
-		r.Recorder = mgr.GetEventRecorderFor("backuppolicy")
+		r.Recorder = mgr.GetEventRecorder("backuppolicy")
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&opsv1alpha1.BackupPolicy{}).

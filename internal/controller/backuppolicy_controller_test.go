@@ -35,7 +35,7 @@ var _ = Describe("BackupPolicy Controller", func() {
 	Context("When reconciling a resource", func() {
 		const (
 			resourceName      = "test-resource"
-			resourceNamespace = "default"
+			resourceNamespace = testNamespace
 		)
 
 		ctx := context.Background()
@@ -57,9 +57,9 @@ var _ = Describe("BackupPolicy Controller", func() {
 					},
 					Spec: opsv1alpha1.BackupPolicySpec{
 						TargetSelector: metav1.LabelSelector{
-							MatchLabels: map[string]string{"app": "iris"},
+							MatchLabels: map[string]string{labelApp: appIris},
 						},
-						Schedule: "0 0 * * *",
+						Schedule: testSchedule,
 					},
 				}
 				Expect(k8sClient.Create(ctx, resource)).To(Succeed())

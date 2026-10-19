@@ -17,9 +17,10 @@ Verbs below are the ones the reconcilers and the manager process call. A cache i
 | `pods` | get, list, watch, create, delete | The verification controller watches Pods, creates the verification Pod, reads its exit code, and deletes it afterwards. |
 | `volumesnapshots.snapshot.storage.k8s.io` | get, list, create, delete | The policy controller lists owned snapshots, creates one per PVC, and deletes snapshots past retention. The verification controller reads the snapshot named by the RestoreVerification. |
 | `networkpolicies.networking.k8s.io` | get, create, update | The verification controller installs `iris-backup-verification-deny` in the verification namespace and restores it when its rules change. |
-| `events` | create, patch | `Recorder.Event` writes a core v1 Event. client-go patches that Event to repeat it. Leader election records its Events through the same API. |
+| `events` | create, patch | Leader election still records core v1 Events. client-go patches an Event to repeat it. |
+| `events.events.k8s.io` | create, patch, update | The policy controller records backup Events with `GetEventRecorder`. The events API creates an Event and then patches or updates it. |
 
-The policy controller does not create or delete BackupPolicy objects, and neither controller patches an object or its status. RestoreVerification has no finalizer. VolumeSnapshots are read and written during reconcile; nothing watches them. Events go to core v1, through `GetEventRecorderFor`, so there is no `events.k8s.io` rule.
+The policy controller does not create or delete BackupPolicy objects, and neither controller patches an object or its status. RestoreVerification has no finalizer. VolumeSnapshots are read and written during reconcile; nothing watches them. Backup Events use `events.k8s.io`. Core v1 Events remain because leader election still uses that recorder.
 
 ## leader-election-role
 

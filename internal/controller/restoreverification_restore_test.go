@@ -40,7 +40,7 @@ import (
 )
 
 func TestRestoreObjectName(t *testing.T) {
-	if got := restoreObjectName("data"); got != "verify-data" {
+	if got := restoreObjectName(restoreVolumeName); got != "verify-data" {
 		t.Fatalf("restoreObjectName() = %s, want verify-data", got)
 	}
 
@@ -68,7 +68,7 @@ var _ = Describe("RestoreVerification restore", func() {
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		Expect(networkingv1.AddToScheme(scheme)).To(Succeed())
-		verification = newRestoreVerification("check-data", "default", 1)
+		verification = newRestoreVerification("check-data", 1)
 		verification.Status.Phase = opsv1alpha1.RestoreVerificationPhaseRunning
 		key = types.NamespacedName{Name: verification.Name, Namespace: verification.Namespace}
 		now = time.Date(2026, 10, 18, 16, 45, 0, 0, time.UTC)
@@ -144,13 +144,13 @@ var _ = Describe("RestoreVerification restore", func() {
 })
 
 func restoreKey() types.NamespacedName {
-	return types.NamespacedName{Name: restoreObjectName("test-resource"), Namespace: "default"}
+	return types.NamespacedName{Name: restoreObjectName("test-resource"), Namespace: testNamespace}
 }
 
 func restoreSourcePVC() *corev1.PersistentVolumeClaim {
 	class := "standard"
-	claim := backupPVC("data")
-	claim.Labels = map[string]string{"app": "restore-source"}
+	claim := backupPVC(restoreVolumeName)
+	claim.Labels = map[string]string{labelApp: "restore-source"}
 	claim.Spec.StorageClassName = &class
 	return claim
 }

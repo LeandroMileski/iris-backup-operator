@@ -58,12 +58,12 @@ var _ = Describe("BackupPolicy Webhook", func() {
 		It("leaves a schedule, retention, and suspend that are already set", func() {
 			retention := int32(3)
 			suspend := true
-			obj.Spec.Schedule = "0 1 * * *"
+			obj.Spec.Schedule = scheduleOneAM
 			obj.Spec.Retention = &retention
 			obj.Spec.Suspend = &suspend
 
 			Expect(defaulter.Default(ctx, obj)).To(Succeed())
-			Expect(obj.Spec.Schedule).To(Equal("0 1 * * *"))
+			Expect(obj.Spec.Schedule).To(Equal(scheduleOneAM))
 			Expect(*obj.Spec.Retention).To(Equal(retention))
 			Expect(*obj.Spec.Suspend).To(Equal(suspend))
 		})
@@ -76,7 +76,7 @@ var _ = Describe("BackupPolicy Webhook", func() {
 				},
 				Spec: opsv1alpha1.BackupPolicySpec{
 					TargetSelector: metav1.LabelSelector{
-						MatchLabels: map[string]string{"app": "iris"},
+						MatchLabels: map[string]string{labelApp: appIris},
 					},
 				},
 			}
@@ -97,7 +97,7 @@ var _ = Describe("BackupPolicy Webhook", func() {
 			Expect(err).To(Succeed())
 
 			updated := validBackupPolicy("valid")
-			updated.Spec.Schedule = "0 1 * * *"
+			updated.Spec.Schedule = scheduleOneAM
 			_, err = validator.ValidateUpdate(ctx, policy, updated)
 			Expect(err).To(Succeed())
 		})
@@ -105,34 +105,34 @@ var _ = Describe("BackupPolicy Webhook", func() {
 		It("rejects an update that breaks the schedule", func() {
 			policy := validBackupPolicy("update")
 			updated := validBackupPolicy("update")
-			updated.Spec.Schedule = "60 0 * * *"
+			updated.Spec.Schedule = scheduleOutOfRange
 			_, err := validator.ValidateUpdate(ctx, policy, updated)
-			expectDenied(err, "spec.schedule", "five-field cron")
+			expectDenied(err, fieldSchedule, "five-field cron")
 		})
 
 		It("allows deletion of an invalid policy", func() {
 			policy := validBackupPolicy("delete")
-			policy.Spec.Schedule = "not-a-cron"
+			policy.Spec.Schedule = scheduleNotCron
 			_, err := validator.ValidateDelete(ctx, policy)
 			Expect(err).To(Succeed())
 		})
 
 		It("rejects an invalid cron expression at the API server", func() {
 			policy := validBackupPolicy("webhook-invalid-cron")
-			policy.Spec.Schedule = "60 0 * * *"
-			expectDenied(k8sClient.Create(ctx, policy), "spec.schedule", "five-field cron")
+			policy.Spec.Schedule = scheduleOutOfRange
+			expectDenied(k8sClient.Create(ctx, policy), fieldSchedule, "five-field cron")
 		})
 
 		It("rejects an empty selector at the API server", func() {
 			policy := validBackupPolicy("webhook-empty-selector")
 			policy.Spec.TargetSelector = metav1.LabelSelector{}
-			expectDenied(k8sClient.Create(ctx, policy), "spec.targetSelector", "must not be empty")
+			expectDenied(k8sClient.Create(ctx, policy), fieldTargetSelector, "must not be empty")
 		})
 
 		It("rejects verifyRestore without verification at the API server", func() {
 			policy := validBackupPolicy("webhook-verify-required")
 			enableVerify(policy)
-			expectDenied(k8sClient.Create(ctx, policy), "spec.verification", "required when verifyRestore is true")
+			expectDenied(k8sClient.Create(ctx, policy), "spec.verification", verificationRequiredMessage)
 		})
 
 		It("rejects retention below 1 at the API server", func() {
@@ -146,21 +146,21 @@ var _ = Describe("BackupPolicy Webhook", func() {
 			policy := validBackupPolicy("webhook-update")
 			enableVerify(policy)
 			policy.Spec.Verification = &opsv1alpha1.Verification{
-				Image:   "busybox",
-				Command: []string{"echo", "ok"},
+				Image:   imageBusybox,
+				Command: []string{cmdEcho, "ok"},
 			}
 			Expect(k8sClient.Create(ctx, policy)).To(Succeed())
 			DeferCleanup(func() {
 				Expect(k8sClient.Delete(ctx, policy)).To(Succeed())
 			})
 
-			policy.Spec.Schedule = "60 0 * * *"
-			expectDenied(k8sClient.Update(ctx, policy), "spec.schedule", "five-field cron")
+			policy.Spec.Schedule = scheduleOutOfRange
+			expectDenied(k8sClient.Update(ctx, policy), fieldSchedule, "five-field cron")
 
 			got := &opsv1alpha1.BackupPolicy{}
 			Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(policy), got)).To(Succeed())
 			Expect(got.Spec.Schedule).To(Equal("0 0 * * *"))
-			Expect(got.Spec.Verification.Command).To(Equal([]string{"echo", "ok"}))
+			Expect(got.Spec.Verification.Command).To(Equal([]string{cmdEcho, "ok"}))
 		})
 	})
 
@@ -176,7 +176,7 @@ func validBackupPolicy(name string) *opsv1alpha1.BackupPolicy {
 		},
 		Spec: opsv1alpha1.BackupPolicySpec{
 			TargetSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "iris"},
+				MatchLabels: map[string]string{labelApp: appIris},
 			},
 			Schedule:      "0 0 * * *",
 			Retention:     &retention,

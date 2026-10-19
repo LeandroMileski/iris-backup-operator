@@ -43,7 +43,7 @@ import (
 var _ = Describe("RestoreVerification Controller", func() {
 	const (
 		resourceName      = "test-resource"
-		resourceNamespace = "default"
+		resourceNamespace = testNamespace
 	)
 
 	ctx := context.Background()
@@ -56,7 +56,7 @@ var _ = Describe("RestoreVerification Controller", func() {
 		By("creating the custom resource for the Kind RestoreVerification")
 		err := k8sClient.Get(ctx, typeNamespacedName, &opsv1alpha1.RestoreVerification{})
 		if err != nil && apierrors.IsNotFound(err) {
-			resource := newRestoreVerification(resourceName, resourceNamespace, 0)
+			resource := newRestoreVerification(resourceName, 0)
 			timeout := int32(30)
 			resource.Spec.Verification.TimeoutSeconds = &timeout
 			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -69,7 +69,7 @@ var _ = Describe("RestoreVerification Controller", func() {
 		restoreName := restoreObjectName(resourceName)
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: restoreName, Namespace: resourceNamespace}}))).To(Succeed())
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: restoreName, Namespace: resourceNamespace}}))).To(Succeed())
-		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: resourceNamespace}}))).To(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: restoreVolumeName, Namespace: resourceNamespace}}))).To(Succeed())
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, restoreSnapshot(resourceNamespace)))).To(Succeed())
 
 		resource := &opsv1alpha1.RestoreVerification{}
@@ -90,7 +90,7 @@ var _ = Describe("RestoreVerification Controller", func() {
 
 		result, err := reconciler.Reconcile(ctx, reconcile.Request{NamespacedName: typeNamespacedName})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(result.Requeue).To(BeTrue())
+		Expect(result.RequeueAfter).To(Equal(verificationPendingRequeue))
 
 		pending := &opsv1alpha1.RestoreVerification{}
 		Expect(k8sClient.Get(ctx, typeNamespacedName, pending)).To(Succeed())
@@ -153,7 +153,7 @@ var _ = Describe("RestoreVerification reconciler", func() {
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		Expect(networkingv1.AddToScheme(scheme)).To(Succeed())
-		verification = newRestoreVerification("check-data", "default", generation)
+		verification = newRestoreVerification("check-data", generation)
 		key = types.NamespacedName{Name: verification.Name, Namespace: verification.Namespace}
 		now = time.Date(2026, 10, 18, 16, 30, 0, 0, time.UTC)
 	})
@@ -195,9 +195,9 @@ var _ = Describe("RestoreVerification reconciler", func() {
 			opsv1alpha1.RestoreVerificationPhaseSucceeded,
 			opsv1alpha1.RestoreVerificationPhaseFailed,
 		} {
-			object := newRestoreVerification(phase, "default", generation)
+			object := newRestoreVerification(phase, generation)
 			object.Status.Phase = phase
-			object.Status.Message = "already finished"
+			object.Status.Message = finishedMessage
 			object.Status.CompletionTime = &finished
 			applyVerificationStatus(object, phase, "", finished.Time)
 			cl := verificationClient(scheme, object)
@@ -214,7 +214,7 @@ var _ = Describe("RestoreVerification reconciler", func() {
 			Expect(cl.Get(ctx, objectKey, got)).To(Succeed())
 			Expect(got.ResourceVersion).To(Equal(before.ResourceVersion))
 			Expect(got.Status.Phase).To(Equal(phase))
-			Expect(got.Status.Message).To(Equal("already finished"))
+			Expect(got.Status.Message).To(Equal(finishedMessage))
 			Expect(got.Status.CompletionTime.Time).To(BeTemporally("==", finished.Time))
 		}
 	})
@@ -269,16 +269,16 @@ var _ = Describe("RestoreVerification reconciler", func() {
 	})
 })
 
-func newRestoreVerification(name, namespace string, generation int64) *opsv1alpha1.RestoreVerification {
+func newRestoreVerification(name string, generation int64) *opsv1alpha1.RestoreVerification {
 	return &opsv1alpha1.RestoreVerification{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       name,
-			Namespace:  namespace,
+			Namespace:  testNamespace,
 			Generation: generation,
 		},
 		Spec: opsv1alpha1.RestoreVerificationSpec{
 			SnapshotName:              "data-snapshot",
-			PersistentVolumeClaimName: "data",
+			PersistentVolumeClaimName: restoreVolumeName,
 			Verification: opsv1alpha1.Verification{
 				Image:   "busybox:1.36",
 				Command: []string{"test", "-f", "/data/ok"},

@@ -40,59 +40,59 @@ func TestNextRun(t *testing.T) {
 	}{
 		{
 			name:     "first run waits until the next daily midnight",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			now:      sundayAfternoon,
 			want:     time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:     "exact boundary is excluded when there is no previous run",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			now:      time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC),
 			want:     time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:     "one second before midnight is due at midnight",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			now:      time.Date(2026, 10, 18, 23, 59, 59, 0, time.UTC),
 			want:     time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:     "one second after midnight waits until the next day",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			now:      time.Date(2026, 10, 18, 0, 0, 1, 0, time.UTC),
 			want:     time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:     "previous run exactly on the boundary advances one interval",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			last:     time.Date(2026, 10, 18, 0, 0, 0, 0, time.UTC),
 			now:      sundayAfternoon,
 			want:     time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:     "missed interval stays in the past",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			last:     time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC),
 			now:      sundayAfternoon,
 			want:     time.Date(2026, 10, 17, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:     "last successful time in the future is ignored",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			last:     time.Date(2026, 10, 20, 0, 0, 0, 0, time.UTC),
 			now:      sundayAfternoon,
 			want:     time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:     "non-UTC times are evaluated in UTC",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			last:     time.Date(2026, 10, 18, 1, 0, 0, 0, utcPlusOne),
 			now:      time.Date(2026, 10, 18, 16, 0, 0, 0, utcPlusOne),
 			want:     time.Date(2026, 10, 19, 0, 0, 0, 0, time.UTC),
 		},
 		{
 			name:     "daylight saving wall clock is converted to UTC first",
-			schedule: "0 0 * * *",
+			schedule: testSchedule,
 			now:      time.Date(2026, 3, 8, 2, 30, 0, 0, newYork),
 			want:     time.Date(2026, 3, 9, 0, 0, 0, 0, time.UTC),
 		},
@@ -148,7 +148,7 @@ func TestNextRun(t *testing.T) {
 		{name: "zero step", schedule: "*/0 * * * *", now: sundayAfternoon, wantErr: true},
 		{name: "descriptor", schedule: "@daily", now: sundayAfternoon, wantErr: true},
 		{name: "impossible day", schedule: "0 0 31 2 *", now: sundayAfternoon, wantErr: true},
-		{name: "zero now", schedule: "0 0 * * *", wantErr: true},
+		{name: "zero now", schedule: testSchedule, wantErr: true},
 	}
 
 	for _, tt := range tests {
