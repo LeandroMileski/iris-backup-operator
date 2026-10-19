@@ -377,7 +377,7 @@ var _ = Describe("Manager", Ordered, func() {
 			verificationSucceeded := func(g Gomega) {
 				cmd := exec.Command("kubectl", "get", "restoreverifications.ops.leandro.ie",
 					"-n", workloadNamespace,
-					"-o", "jsonpath={.items[0].status.phase}{\" \"}{.items[0].status.message}")
+					"-o", "jsonpath={range .items[*]}{.status.phase} {.status.message}{\"\\n\"}{end}")
 				output, err := utils.Run(cmd)
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(output).To(ContainSubstring("Succeeded"))

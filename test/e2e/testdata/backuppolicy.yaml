@@ -8,7 +8,7 @@ spec:
     matchLabels:
       app.kubernetes.io/name: e2e-data
   schedule: "* * * * *"
-  retention: 1
+  retention: 3
   snapshotClassName: csi-hostpath-snapclass
   verifyRestore: true
   verification:

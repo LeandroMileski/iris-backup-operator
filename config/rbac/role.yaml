@@ -37,7 +37,9 @@ rules:
   verbs:
   - create
   - get
+  - list
   - update
+  - watch
 - apiGroups:
   - ops.leandro.ie
   resources:

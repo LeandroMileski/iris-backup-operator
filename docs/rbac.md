@@ -16,7 +16,7 @@ Verbs below are the ones the reconcilers and the manager process call. A cache i
 | `persistentvolumeclaims` | get, list, watch, create, delete | The policy controller lists claims that match `targetSelector`. The verification controller watches claims, reads the source claim, creates the restored claim, and deletes it after the check. |
 | `pods` | get, list, watch, create, delete | The verification controller watches Pods, creates the verification Pod, reads its exit code, and deletes it afterwards. |
 | `volumesnapshots.snapshot.storage.k8s.io` | get, list, create, delete | The policy controller lists owned snapshots, creates one per PVC, and deletes snapshots past retention. The verification controller reads the snapshot named by the RestoreVerification. |
-| `networkpolicies.networking.k8s.io` | get, create, update | The verification controller installs `iris-backup-verification-deny` in the verification namespace and restores it when its rules change. |
+| `networkpolicies.networking.k8s.io` | get, list, watch, create, update | The verification controller installs `iris-backup-verification-deny` in the verification namespace and restores it when its rules change. |
 | `events` | create, patch | Leader election still records core v1 Events. client-go patches an Event to repeat it. |
 | `events.events.k8s.io` | create, patch, update | The policy controller records backup Events with `GetEventRecorder`. The events API creates an Event and then patches or updates it. |
 
