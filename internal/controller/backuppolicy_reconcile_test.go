@@ -38,7 +38,7 @@ import (
 var _ = Describe("BackupPolicy reconciler", func() {
 	const (
 		policyName      = "daily"
-		policyNamespace = "default"
+		policyNamespace = testNamespace
 		generation      = int64(2)
 	)
 
@@ -53,7 +53,7 @@ var _ = Describe("BackupPolicy reconciler", func() {
 		ctx = context.Background()
 		scheme = runtime.NewScheme()
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
-		policy = newBackupPolicy(policyName, policyNamespace, generation)
+		policy = newBackupPolicy(policyName, generation)
 		key = types.NamespacedName{Name: policyName, Namespace: policyNamespace}
 	})
 
@@ -126,18 +126,18 @@ func newReconciler(cl client.Client) *BackupPolicyReconciler {
 	}
 }
 
-func newBackupPolicy(name, namespace string, generation int64) *opsv1alpha1.BackupPolicy {
+func newBackupPolicy(name string, generation int64) *opsv1alpha1.BackupPolicy {
 	return &opsv1alpha1.BackupPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:       name,
-			Namespace:  namespace,
+			Namespace:  testNamespace,
 			Generation: generation,
 		},
 		Spec: opsv1alpha1.BackupPolicySpec{
 			TargetSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "iris"},
+				MatchLabels: map[string]string{labelApp: appIris},
 			},
-			Schedule: "0 0 * * *",
+			Schedule: testSchedule,
 		},
 	}
 }

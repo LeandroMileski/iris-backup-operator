@@ -31,7 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/events"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -44,7 +44,7 @@ var _ = Describe("BackupPolicy status", func() {
 	It("retries a conflicting status update", func() {
 		scheme := runtime.NewScheme()
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
-		policy := newBackupPolicy("conflict", "default", 4)
+		policy := newBackupPolicy("conflict", 4)
 		key := types.NamespacedName{Name: policy.Name, Namespace: policy.Namespace}
 		base := fake.NewClientBuilder().
 			WithScheme(scheme).
@@ -75,7 +75,7 @@ var _ = Describe("BackupPolicy status", func() {
 	})
 
 	Describe("envtest paths", func() {
-		const namespace = "default"
+		const namespace = testNamespace
 
 		AfterEach(func() {
 			deleteLabeledSnapshots("status-create")
@@ -90,7 +90,7 @@ var _ = Describe("BackupPolicy status", func() {
 			policy := createStatusPolicy("status-create", false)
 			Expect(k8sClient.Create(ctx, backupPVC("status-create-data"))).To(Succeed())
 
-			events := record.NewFakeRecorder(10)
+			events := events.NewFakeRecorder(10)
 			now := policy.CreationTimestamp.Add(48 * time.Hour)
 			_, err := (&BackupPolicyReconciler{
 				Client:   k8sClient,
@@ -113,7 +113,7 @@ var _ = Describe("BackupPolicy status", func() {
 			policy := createStatusPolicy("status-suspend", true)
 			Expect(k8sClient.Create(ctx, backupPVC("status-suspend-data"))).To(Succeed())
 
-			events := record.NewFakeRecorder(10)
+			events := events.NewFakeRecorder(10)
 			now := policy.CreationTimestamp.Add(48 * time.Hour)
 			result, err := (&BackupPolicyReconciler{
 				Client:   k8sClient,
@@ -136,13 +136,13 @@ var _ = Describe("BackupPolicy status", func() {
 })
 
 func createStatusPolicy(name string, suspend bool) *opsv1alpha1.BackupPolicy {
-	policy := newBackupPolicy(name, "default", 1)
+	policy := newBackupPolicy(name, 1)
 	if suspend {
 		policy.Spec.Suspend = &suspend
 	}
 	Expect(k8sClient.Create(ctx, policy)).To(Succeed())
 	created := &opsv1alpha1.BackupPolicy{}
-	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, created)).To(Succeed())
+	Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, created)).To(Succeed())
 	return created
 }
 
@@ -150,8 +150,8 @@ func backupPVC(name string) *corev1.PersistentVolumeClaim {
 	return &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      name,
-			Namespace: "default",
-			Labels:    map[string]string{"app": "iris"},
+			Namespace: testNamespace,
+			Labels:    map[string]string{labelApp: appIris},
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
@@ -171,18 +171,18 @@ func ownedSnapshotCount(policy *opsv1alpha1.BackupPolicy) int {
 func deleteLabeledSnapshots(policyName string) {
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(volumeSnapshotGVK.GroupVersion().WithKind("VolumeSnapshotList"))
-	Expect(k8sClient.List(ctx, list, client.InNamespace("default"), client.MatchingLabels{labelBackupPolicy: policyName})).To(Succeed())
+	Expect(k8sClient.List(ctx, list, client.InNamespace(testNamespace), client.MatchingLabels{labelBackupPolicy: policyName})).To(Succeed())
 	for i := range list.Items {
 		list.Items[i].SetGroupVersionKind(volumeSnapshotGVK)
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &list.Items[i]))).To(Succeed())
 	}
 }
 
-func readEvents(events *record.FakeRecorder) []string {
+func readEvents(recorder *events.FakeRecorder) []string {
 	var got []string
 	for {
 		select {
-		case event := <-events.Events:
+		case event := <-recorder.Events:
 			got = append(got, event)
 		default:
 			return got

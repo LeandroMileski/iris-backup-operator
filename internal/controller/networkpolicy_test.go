@@ -25,8 +25,8 @@ import (
 )
 
 func TestVerificationNetworkPolicyDeniesAllTraffic(t *testing.T) {
-	policy := newVerificationNetworkPolicy("app")
-	if policy.Namespace != "app" || policy.Name != verificationNetworkPolicyName {
+	policy := newVerificationNetworkPolicy(labelApp)
+	if policy.Namespace != labelApp || policy.Name != verificationNetworkPolicyName {
 		t.Fatalf("policy = %s/%s, want app/%s", policy.Namespace, policy.Name, verificationNetworkPolicyName)
 	}
 	if len(policy.Spec.Ingress) != 0 || len(policy.Spec.Egress) != 0 {
@@ -46,7 +46,7 @@ func TestVerificationNetworkPolicyDeniesAllTraffic(t *testing.T) {
 	if !selector.Matches(verificationPod) {
 		t.Fatal("verification Pod was not selected")
 	}
-	other := labels.Set(map[string]string{"app": "web"})
+	other := labels.Set(map[string]string{labelApp: "web"})
 	if selector.Matches(other) {
 		t.Fatal("unrelated Pod was selected")
 	}

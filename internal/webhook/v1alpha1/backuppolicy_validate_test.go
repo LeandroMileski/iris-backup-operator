@@ -43,7 +43,7 @@ func TestValidateBackupPolicy(t *testing.T) {
 			mutate: func(policy *opsv1alpha1.BackupPolicy) {
 				policy.Spec.TargetSelector = metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{{
-						Key:      "app",
+						Key:      labelApp,
 						Operator: metav1.LabelSelectorOpExists,
 					}},
 				}
@@ -67,117 +67,117 @@ func TestValidateBackupPolicy(t *testing.T) {
 			mutate: func(policy *opsv1alpha1.BackupPolicy) {
 				enableVerify(policy)
 				policy.Spec.Verification = &opsv1alpha1.Verification{
-					Image:   "busybox",
-					Command: []string{"echo", "ok"},
+					Image:   imageBusybox,
+					Command: []string{cmdEcho, "ok"},
 				}
 			},
 		},
 		{
 			name:    "empty schedule",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "non-cron text",
-			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "not-a-cron" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = scheduleNotCron },
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "minute out of range",
-			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "60 0 * * *" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression", "60"},
+			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = scheduleOutOfRange },
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage, "60"},
 		},
 		{
 			name:    "hour out of range",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "0 24 * * *" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "day of month out of range",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "0 0 32 * *" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "month out of range",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "0 0 * 13 *" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "day of week out of range",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "0 0 * * 8" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "too few fields",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "* * * *" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "too many fields",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "* * * * * *" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "zero step",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "*/0 * * * *" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "descriptor",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "@daily" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression"},
+			wantErr: []string{fieldSchedule, scheduleInvalidMessage},
 		},
 		{
 			name:    "impossible day",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Schedule = "0 0 31 2 *" },
-			wantErr: []string{"spec.schedule", "must be a five-field cron expression with an upcoming time"},
+			wantErr: []string{fieldSchedule, "must be a five-field cron expression with an upcoming time"},
 		},
 		{
 			name:    "missing retention",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Retention = nil },
-			wantErr: []string{"spec.retention", "must be greater than or equal to 1"},
+			wantErr: []string{fieldRetention, retentionInvalidMessage},
 		},
 		{
 			name:    "retention of 0",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Retention = &retentionZero },
-			wantErr: []string{"spec.retention", "must be greater than or equal to 1"},
+			wantErr: []string{fieldRetention, retentionInvalidMessage},
 		},
 		{
 			name:    "negative retention",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.Retention = &retentionNegative },
-			wantErr: []string{"spec.retention", "must be greater than or equal to 1"},
+			wantErr: []string{fieldRetention, retentionInvalidMessage},
 		},
 		{
 			name:    "empty selector",
 			mutate:  func(policy *opsv1alpha1.BackupPolicy) { policy.Spec.TargetSelector = metav1.LabelSelector{} },
-			wantErr: []string{"spec.targetSelector", "must not be empty"},
+			wantErr: []string{fieldTargetSelector, "must not be empty"},
 		},
 		{
 			name: "selector that cannot be parsed",
 			mutate: func(policy *opsv1alpha1.BackupPolicy) {
 				policy.Spec.TargetSelector = metav1.LabelSelector{
 					MatchExpressions: []metav1.LabelSelectorRequirement{{
-						Key:      "app",
+						Key:      labelApp,
 						Operator: metav1.LabelSelectorOpIn,
 					}},
 				}
 			},
-			wantErr: []string{"spec.targetSelector", "must be a valid label selector"},
+			wantErr: []string{fieldTargetSelector, "must be a valid label selector"},
 		},
 		{
 			name: "verifyRestore without verification",
 			mutate: func(policy *opsv1alpha1.BackupPolicy) {
 				enableVerify(policy)
 			},
-			wantErr: []string{"spec.verification", "required when verifyRestore is true"},
+			wantErr: []string{"spec.verification", verificationRequiredMessage},
 		},
 		{
 			name: "verifyRestore without a command",
 			mutate: func(policy *opsv1alpha1.BackupPolicy) {
 				enableVerify(policy)
-				policy.Spec.Verification = &opsv1alpha1.Verification{Image: "busybox"}
+				policy.Spec.Verification = &opsv1alpha1.Verification{Image: imageBusybox}
 			},
-			wantErr: []string{"spec.verification.command", "required when verifyRestore is true"},
+			wantErr: []string{"spec.verification.command", verificationRequiredMessage},
 		},
 		{
 			name: "verifyRestore with a blank image and command",
@@ -188,19 +188,19 @@ func TestValidateBackupPolicy(t *testing.T) {
 			wantErr: []string{
 				"spec.verification.image",
 				"spec.verification.command[0]",
-				"required when verifyRestore is true",
+				verificationRequiredMessage,
 				"must not be empty",
 			},
 		},
 		{
 			name: "every problem in one response",
 			mutate: func(policy *opsv1alpha1.BackupPolicy) {
-				policy.Spec.Schedule = "60 0 * * *"
+				policy.Spec.Schedule = scheduleOutOfRange
 				policy.Spec.TargetSelector = metav1.LabelSelector{}
 				policy.Spec.Retention = &retentionZero
 				enableVerify(policy)
 			},
-			wantErr: []string{"spec.schedule", "spec.retention", "spec.targetSelector", "spec.verification"},
+			wantErr: []string{fieldSchedule, fieldRetention, fieldTargetSelector, "spec.verification"},
 		},
 	}
 
@@ -244,11 +244,11 @@ func TestApplyBackupPolicyDefaults(t *testing.T) {
 		{
 			name: "values already set",
 			spec: opsv1alpha1.BackupPolicySpec{
-				Schedule:  "0 1 * * *",
+				Schedule:  scheduleOneAM,
 				Retention: &retention,
 				Suspend:   &suspend,
 			},
-			wantSchedule:  "0 1 * * *",
+			wantSchedule:  scheduleOneAM,
 			wantRetention: retention,
 			wantSuspend:   suspend,
 		},
@@ -277,7 +277,7 @@ func TestDefaultedPolicyIsValid(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "daily"},
 		Spec: opsv1alpha1.BackupPolicySpec{
 			TargetSelector: metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "iris"},
+				MatchLabels: map[string]string{labelApp: appIris},
 			},
 		},
 	}
@@ -296,12 +296,12 @@ func TestDefaultedPolicyIsValid(t *testing.T) {
 		t.Fatalf("validateBackupPolicy() after defaults: %v", err)
 	}
 
-	policy.Spec.Schedule = "not-a-cron"
+	policy.Spec.Schedule = scheduleNotCron
 	applyBackupPolicyDefaults(policy)
-	if policy.Spec.Schedule != "not-a-cron" {
+	if policy.Spec.Schedule != scheduleNotCron {
 		t.Fatalf("schedule = %q, want not-a-cron", policy.Spec.Schedule)
 	}
-	expectInvalidPolicy(t, validateBackupPolicy(policy), []string{"spec.schedule", "must be a five-field cron expression"})
+	expectInvalidPolicy(t, validateBackupPolicy(policy), []string{fieldSchedule, scheduleInvalidMessage})
 }
 
 func expectInvalidPolicy(t *testing.T, err error, fragments []string) {

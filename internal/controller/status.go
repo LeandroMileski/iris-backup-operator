@@ -134,5 +134,5 @@ func (r *BackupPolicyReconciler) event(obj runtime.Object, eventType, reason, me
 	if r.Recorder == nil || obj == nil {
 		return
 	}
-	r.Recorder.Event(obj, eventType, reason, message)
+	r.Recorder.Eventf(obj, nil, eventType, reason, reason, message)
 }

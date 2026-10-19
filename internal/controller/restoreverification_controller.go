@@ -90,7 +90,7 @@ func (r *RestoreVerificationReconciler) Reconcile(ctx context.Context, req ctrl.
 		return ctrl.Result{}, err
 	}
 	if next == opsv1alpha1.RestoreVerificationPhasePending {
-		return ctrl.Result{Requeue: true}, nil
+		return ctrl.Result{RequeueAfter: verificationPendingRequeue}, nil
 	}
 	if next == opsv1alpha1.RestoreVerificationPhaseRunning {
 		if err := r.ensureRestore(ctx, verification); err != nil {

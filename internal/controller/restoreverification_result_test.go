@@ -75,7 +75,7 @@ func TestVerificationPodResult(t *testing.T) {
 var _ = Describe("RestoreVerification result", func() {
 	const (
 		resourceName      = "test-result"
-		resourceNamespace = "default"
+		resourceNamespace = testNamespace
 	)
 
 	ctx := context.Background()
@@ -85,7 +85,7 @@ var _ = Describe("RestoreVerification result", func() {
 	BeforeEach(func() {
 		err := k8sClient.Get(ctx, key, &opsv1alpha1.RestoreVerification{})
 		if err != nil && apierrors.IsNotFound(err) {
-			resource := newRestoreVerification(resourceName, resourceNamespace, 0)
+			resource := newRestoreVerification(resourceName, 0)
 			timeout := int32(30)
 			resource.Spec.Verification.TimeoutSeconds = &timeout
 			Expect(k8sClient.Create(ctx, resource)).To(Succeed())
@@ -98,7 +98,7 @@ var _ = Describe("RestoreVerification result", func() {
 		restoreName := restoreObjectName(resourceName)
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.Pod{ObjectMeta: metav1.ObjectMeta{Name: restoreName, Namespace: resourceNamespace}}))).To(Succeed())
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: restoreName, Namespace: resourceNamespace}}))).To(Succeed())
-		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: "data", Namespace: resourceNamespace}}))).To(Succeed())
+		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &corev1.PersistentVolumeClaim{ObjectMeta: metav1.ObjectMeta{Name: restoreVolumeName, Namespace: resourceNamespace}}))).To(Succeed())
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, restoreSnapshot(resourceNamespace)))).To(Succeed())
 		Expect(client.IgnoreNotFound(k8sClient.Delete(ctx, &opsv1alpha1.RestoreVerification{ObjectMeta: metav1.ObjectMeta{Name: resourceName, Namespace: resourceNamespace}}))).To(Succeed())
 	})
@@ -117,7 +117,7 @@ var _ = Describe("RestoreVerification result", func() {
 		Expect(result).To(Equal(reconcile.Result{}))
 		expectFinishedVerification(ctx, key, opsv1alpha1.RestoreVerificationPhaseSucceeded, verificationExitMessage(0), now)
 		expectRestoreObjectsGone(ctx, resourceName)
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "data", Namespace: resourceNamespace}, &corev1.PersistentVolumeClaim{})).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: restoreVolumeName, Namespace: resourceNamespace}, &corev1.PersistentVolumeClaim{})).To(Succeed())
 	})
 
 	It("records a non-zero exit code and still deletes the Pod and restored PersistentVolumeClaim", func() {
@@ -133,7 +133,7 @@ var _ = Describe("RestoreVerification result", func() {
 		Expect(err).NotTo(HaveOccurred())
 		expectFinishedVerification(ctx, key, opsv1alpha1.RestoreVerificationPhaseFailed, verificationExitMessage(2), now)
 		expectRestoreObjectsGone(ctx, resourceName)
-		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: "data", Namespace: resourceNamespace}, &corev1.PersistentVolumeClaim{})).To(Succeed())
+		Expect(k8sClient.Get(ctx, types.NamespacedName{Name: restoreVolumeName, Namespace: resourceNamespace}, &corev1.PersistentVolumeClaim{})).To(Succeed())
 	})
 })
 
@@ -152,7 +152,7 @@ var _ = Describe("RestoreVerification result reconciler", func() {
 		Expect(opsv1alpha1.AddToScheme(scheme)).To(Succeed())
 		Expect(corev1.AddToScheme(scheme)).To(Succeed())
 		Expect(networkingv1.AddToScheme(scheme)).To(Succeed())
-		verification = newRestoreVerification("check-data", "default", 1)
+		verification = newRestoreVerification("check-data", 1)
 		verification.Status.Phase = opsv1alpha1.RestoreVerificationPhaseRunning
 		key = types.NamespacedName{Name: verification.Name, Namespace: verification.Namespace}
 		now = time.Date(2026, 10, 18, 17, 15, 0, 0, time.UTC)
@@ -196,11 +196,11 @@ var _ = Describe("RestoreVerification result reconciler", func() {
 
 	It("deletes a leftover Pod after the result is already recorded", func() {
 		verification.Status.Phase = opsv1alpha1.RestoreVerificationPhaseFailed
-		verification.Status.Message = "already finished"
+		verification.Status.Message = finishedMessage
 		finished := metav1.NewTime(now.Add(-time.Minute))
 		verification.Status.CompletionTime = &finished
 		applyVerificationStatus(verification, opsv1alpha1.RestoreVerificationPhaseFailed, "", finished.Time)
-		verification.Status.Message = "already finished"
+		verification.Status.Message = finishedMessage
 		pod := finishedVerificationPod(verification, corev1.PodFailed, 2, "Error")
 		cl := restoreClient(scheme, verification, pod, namedRestorePVC(verification))
 
@@ -211,7 +211,7 @@ var _ = Describe("RestoreVerification result reconciler", func() {
 		got := &opsv1alpha1.RestoreVerification{}
 		Expect(cl.Get(ctx, key, got)).To(Succeed())
 		Expect(got.Status.Phase).To(Equal(opsv1alpha1.RestoreVerificationPhaseFailed))
-		Expect(got.Status.Message).To(Equal("already finished"))
+		Expect(got.Status.Message).To(Equal(finishedMessage))
 		Expect(got.Status.CompletionTime.Time).To(BeTemporally("==", finished.Time))
 		Expect(apierrors.IsNotFound(cl.Get(ctx, client.ObjectKeyFromObject(pod), &corev1.Pod{}))).To(BeTrue())
 		Expect(apierrors.IsNotFound(cl.Get(ctx, client.ObjectKeyFromObject(pod), &corev1.PersistentVolumeClaim{}))).To(BeTrue())
@@ -257,7 +257,7 @@ func reconcileUntilRunning(ctx context.Context, reconciler *RestoreVerificationR
 
 func setPodResult(ctx context.Context, cl client.Client, name string, phase corev1.PodPhase, exitCode int32, reason string) error {
 	pod := &corev1.Pod{}
-	if err := cl.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pod); err != nil {
+	if err := cl.Get(ctx, types.NamespacedName{Name: name, Namespace: testNamespace}, pod); err != nil {
 		return err
 	}
 	pod.Status.Phase = phase
@@ -284,10 +284,10 @@ func expectFinishedVerification(ctx context.Context, key types.NamespacedName, p
 }
 
 func expectRestoreObjectsGone(ctx context.Context, verificationName string) {
-	key := types.NamespacedName{Name: restoreObjectName(verificationName), Namespace: "default"}
+	key := types.NamespacedName{Name: restoreObjectName(verificationName), Namespace: testNamespace}
 	expectDeleted(ctx, key, &corev1.Pod{})
 	expectDeleted(ctx, key, &corev1.PersistentVolumeClaim{})
-	snapshot := restoreSnapshot("default")
+	snapshot := restoreSnapshot(testNamespace)
 	Expect(k8sClient.Get(ctx, client.ObjectKeyFromObject(snapshot), snapshot)).To(Succeed())
 }
 
