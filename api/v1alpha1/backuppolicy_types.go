@@ -35,8 +35,9 @@ type Verification struct {
 	// +required
 	Command []string `json:"command"`
 
-	// timeoutSeconds is how long the command may run.
+	// timeoutSeconds is how long the command may run. Defaults to 600.
 	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:default=600
 	// +optional
 	TimeoutSeconds *int32 `json:"timeoutSeconds,omitempty"`
 }
@@ -47,9 +48,10 @@ type BackupPolicySpec struct {
 	// +required
 	TargetSelector metav1.LabelSelector `json:"targetSelector"`
 
-	// schedule is a five-field cron expression for when a backup run is due.
+	// schedule is a five-field cron expression for when a backup run is due. Defaults to 0 0 * * *.
 	// +kubebuilder:validation:MinLength=1
 	// +kubebuilder:validation:Pattern=`^(\S+\s+){4}\S+$`
+	// +kubebuilder:default="0 0 * * *"
 	// +required
 	Schedule string `json:"schedule"`
 
@@ -79,6 +81,12 @@ type BackupPolicySpec struct {
 }
 
 const (
+	// DefaultBackupSchedule is the cron schedule used when spec.schedule is empty.
+	DefaultBackupSchedule = "0 0 * * *"
+
+	// DefaultBackupRetention is the number of snapshots kept when spec.retention is empty.
+	DefaultBackupRetention int32 = 7
+
 	// BackupPolicyConditionReady is True when the policy has been reconciled and is not failing.
 	BackupPolicyConditionReady = "Ready"
 

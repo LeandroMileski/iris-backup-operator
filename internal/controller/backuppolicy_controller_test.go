@@ -18,6 +18,7 @@ package controller
 
 import (
 	"context"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -66,19 +67,15 @@ var _ = Describe("BackupPolicy Controller", func() {
 		})
 
 		AfterEach(func() {
-			// TODO(user): Cleanup logic after each test, like removing the resource instance.
-			resource := &opsv1alpha1.BackupPolicy{}
-			err := k8sClient.Get(ctx, typeNamespacedName, resource)
-			Expect(err).NotTo(HaveOccurred())
-
 			By("Cleanup the specific resource instance BackupPolicy")
-			Expect(k8sClient.Delete(ctx, resource)).To(Succeed())
+			finishPolicy(ctx, typeNamespacedName)
 		})
 		It("should successfully reconcile the resource", func() {
 			By("Reconciling the created resource")
 			controllerReconciler := &BackupPolicyReconciler{
 				Client: k8sClient,
 				Scheme: k8sClient.Scheme(),
+				Now:    func() time.Time { return time.Date(2026, 10, 18, 15, 0, 0, 0, time.UTC) },
 			}
 
 			_, err := controllerReconciler.Reconcile(ctx, reconcile.Request{

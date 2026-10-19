@@ -1,0 +1,60 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: iris-data-recovered
+  namespace: iris-demo
+  labels:
+    app.kubernetes.io/name: iris
+    app: demo-database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: csi-hostpath-sc
+  dataSource:
+    name: LATEST_VERIFIED_SNAPSHOT  # replaced dynamically during demo
+    kind: VolumeSnapshot
+    apiGroup: snapshot.storage.k8s.io
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: iris-db-recovered
+  namespace: iris-demo
+  labels:
+    app: demo-database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: demo-database
+  template:
+    metadata:
+      labels:
+        app: demo-database
+        app.kubernetes.io/name: iris
+    spec:
+      containers:
+        - name: database
+          image: busybox:1.36
+          command:
+            - /bin/sh
+            - -c
+            - |
+              echo "=== RECOVERED DATABASE ONLINE ==="
+              cat /data/db.dat
+              echo "Tail of transaction log before disaster:"
+              tail -n 5 /data/db.log
+              while true; do
+                echo "$(date -u +'%Y-%m-%dT%H:%M:%SZ') RECOVERED DB: OPERATIONAL" >> /data/db.log
+                sleep 5
+              done
+          volumeMounts:
+            - name: storage
+              mountPath: /data
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: iris-data-recovered

@@ -1,0 +1,32 @@
+apiVersion: ops.leandro.ie/v1alpha1
+kind: BackupPolicy
+metadata:
+  name: iris-backup-policy
+  namespace: iris-demo
+spec:
+  targetSelector:
+    matchLabels:
+      app.kubernetes.io/name: iris
+  schedule: "*/1 * * * *"
+  retention: 3
+  snapshotClassName: csi-hostpath-snapclass
+  verifyRestore: true
+  verification:
+    image: busybox:1.36
+    timeoutSeconds: 60
+    command:
+      - /bin/sh
+      - -c
+      - |
+        echo "=== VERIFYING RESTORED SNAPSHOT ==="
+        if [ ! -f /data/db.dat ]; then
+          echo "ERROR: db.dat not found!" >&2
+          exit 1
+        fi
+        if grep -q "CHECKSUM: VALID" /data/db.dat; then
+          echo "SUCCESS: Database integrity check passed!"
+          exit 0
+        else
+          echo "CRITICAL: Database checksum mismatch / corruption detected!" >&2
+          exit 1
+        fi
