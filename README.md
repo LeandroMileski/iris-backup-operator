@@ -1,121 +1,112 @@
 # iris-backup-operator
-// TODO(user): Add simple overview of use/purpose
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+A Kubernetes operator that snapshots selected PersistentVolumeClaims on a schedule and can restore a snapshot to check that the data is readable.
 
-## Getting Started
+A VolumeSnapshot only records that the storage driver accepted the request. This operator treats a backup as successful after that snapshot exists, and, when `verifyRestore` is set, after a command has read the restored volume.
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+## How it works
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
+`BackupPolicy` is the API you apply. The controller lists PersistentVolumeClaims in the policy namespace that match `targetSelector`. When the cron schedule is due, it creates one `VolumeSnapshot` per claim, deletes snapshots beyond `retention` (oldest first), and records `status.lastSuccessfulBackupTime`.
 
-```sh
-make docker-build docker-push IMG=<some-registry>/iris-backup-operator:tag
+With `verifyRestore: true`, it also creates a `RestoreVerification` for each snapshot. That controller restores the snapshot into a new claim, runs `verification.command` in a pod with the volume mounted read-only at `/data`, and writes the exit code into status. It then deletes the pod and the restored claim. The source claim and the snapshot stay. The policy copies the latest finished result into `status.lastVerification` and sets `Degraded` when the command fails.
+
+Deleting a `BackupPolicy` removes the snapshots it owns, then removes the finalizer `ops.leandro.ie/backup-policy`. The object stays in `Terminating` until the controller is running and those snapshots are gone.
+
+```mermaid
+flowchart LR
+  policy[BackupPolicy] --> snapshots[VolumeSnapshots]
+  snapshots --> verify[RestoreVerification]
+  verify --> check[Pod reads /data]
+  check --> status[Ready or Degraded]
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+The verification pod runs as UID 65534, with a read-only root filesystem, dropped capabilities, and the `RuntimeDefault` seccomp profile. A `NetworkPolicy` named `iris-backup-verification-deny` in that namespace selects those pods and allows no ingress or egress.
 
-**Install the CRDs into the cluster:**
+## API
+
+Group: `ops.leandro.ie/v1alpha1`.
+
+### BackupPolicy
+
+| Field | Default | Purpose |
+| --- | --- | --- |
+| `spec.targetSelector` | required | Label selector for PersistentVolumeClaims in the same namespace. An empty selector is rejected. |
+| `spec.schedule` | `0 0 * * *` | Five-field cron expression in UTC. `@daily` and other descriptors are rejected. |
+| `spec.retention` | `7` | Snapshots kept per claim. Must be at least 1. |
+| `spec.suspend` | `false` | Skips new snapshots. Retention still runs. |
+| `spec.snapshotClassName` | cluster default | `VolumeSnapshotClass` to set on created snapshots. |
+| `spec.verifyRestore` | `false` | Create a `RestoreVerification` after a successful run. |
+| `spec.verification` | | Image, command, and optional `timeoutSeconds` (default 600). Required when `verifyRestore` is true. |
+
+`kubectl get backuppolicies` prints Schedule, Last Backup, and Ready.
+
+`status.conditions` uses `Ready` and `Degraded`. `Ready` is True when the policy is reconciled and the latest run is not failing. `Degraded` is True when the latest backup or verification failed.
+
+### RestoreVerification
+
+The policy controller creates these. You can also apply one yourself.
+
+| Field | Purpose |
+| --- | --- |
+| `spec.snapshotName` | `VolumeSnapshot` in the same namespace. |
+| `spec.persistentVolumeClaimName` | Claim the snapshot was taken from. Its access mode, storage request, and storage class are copied onto the restored claim. |
+| `spec.verification` | Image and command run against the restored volume. |
+
+`status.phase` moves `Pending` to `Running`, then to `Succeeded` or `Failed`. `kubectl get restoreverifications` prints Phase and Ready.
+
+Admission: a mutating webhook fills an empty schedule, retention, and suspend. A validating webhook rejects a schedule the controller cannot run, retention below 1, an empty selector, and `verifyRestore: true` without an image and command. Deletion is always allowed.
+
+## Requirements
+
+- Kubernetes with the VolumeSnapshot CRDs, the snapshot controller, and a CSI driver that can create snapshots.
+- Go 1.26 to build and run the manager from source.
+- For `make deploy`, an image registry and [cert-manager](https://cert-manager.io/) in the cluster. The default install serves the webhooks from a cert-manager certificate.
+
+## Run the controller locally
+
+Point `kubectl` at the cluster, then from this repository:
 
 ```sh
 make install
+go run ./cmd/main.go --webhook-port=-1
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+`make install` applies the CRDs. `--webhook-port=-1` skips the webhook server, which otherwise expects a TLS certificate at `/tmp/k8s-webhook-server/serving-certs/tls.crt`. With that flag, admission webhooks are not called.
+
+`config/samples/ops_v1alpha1_backuppolicy.yaml` is a policy for claims labeled `app.kubernetes.io/name: iris`. It does nothing useful until those claims exist and the cluster can snapshot them.
+
+## Deploy in the cluster
 
 ```sh
-make deploy IMG=<some-registry>/iris-backup-operator:tag
+make docker-build docker-push IMG=<registry>/iris-backup-operator:tag
+make deploy IMG=<registry>/iris-backup-operator:tag
 ```
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+The manager image is distroless, runs as UID 65532, and pins its base images by digest. See `Dockerfile`.
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+The Deployment runs in `iris-backup-operator-system`. RBAC for that service account is explained in [docs/rbac.md](docs/rbac.md).
 
-```sh
-kubectl apply -k config/samples/
-```
-
->**NOTE**: Ensure that the samples has default values to test it out.
-
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
-
-```sh
-kubectl delete -k config/samples/
-```
-
-**Delete the APIs(CRDs) from the cluster:**
-
-```sh
-make uninstall
-```
-
-**UnDeploy the controller from the cluster:**
+Remove the manager, then the CRDs:
 
 ```sh
 make undeploy
+make uninstall
 ```
 
-## Project Distribution
+Deleting the CRDs deletes every `BackupPolicy` and `RestoreVerification`.
 
-Following the options to release and provide this solution to the users.
+## Demo
 
-### By providing a bundle with all YAML files
+`demo/run-demo.sh` deploys a small database, applies a `BackupPolicy` that verifies each snapshot, corrupts the file so the next check fails, and restores the volume from a snapshot. The cluster needs the hostpath CSI driver and snapshot class used by `demo/01-app.yaml` (`csi-hostpath-sc`). Start the manager before the script, as in the local run above.
 
-1. Build the installer for the image built and published in the registry:
+## Development
 
 ```sh
-make build-installer IMG=<some-registry>/iris-backup-operator:tag
+make test
+make manifests generate
 ```
 
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/iris-backup-operator/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
-
-## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
-
-**NOTE:** Run `make help` for more information on all potential `make` targets
-
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+`make test` regenerates manifests, formats, vets, and runs the unit and envtest suites. End-to-end tests (`make test-e2e`) need a dedicated kind cluster, not a shared one.
 
 ## License
 
@@ -132,4 +123,3 @@ distributed under the License is distributed on an "AS IS" BASIS,
 WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
-
