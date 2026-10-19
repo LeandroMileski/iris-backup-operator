@@ -1,0 +1,17 @@
+apiVersion: ops.leandro.ie/v1alpha1
+kind: BackupPolicy
+metadata:
+  name: e2e-backup
+  namespace: iris-e2e
+spec:
+  targetSelector:
+    matchLabels:
+      app.kubernetes.io/name: e2e-data
+  schedule: "* * * * *"
+  retention: 1
+  snapshotClassName: csi-hostpath-snapclass
+  verifyRestore: true
+  verification:
+    image: busybox:1.36
+    command: ["/bin/sh", "-c", "test -s /data/ok"]
+    timeoutSeconds: 120

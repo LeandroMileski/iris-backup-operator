@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: iris-e2e
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: e2e-data
+  namespace: iris-e2e
+  labels:
+    app.kubernetes.io/name: e2e-data
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: csi-hostpath-sc
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: e2e-writer
+  namespace: iris-e2e
+spec:
+  restartPolicy: Never
+  containers:
+    - name: writer
+      image: busybox:1.36
+      command: ["/bin/sh", "-c", "echo ok > /data/ok && sleep 3600"]
+      volumeMounts:
+        - name: data
+          mountPath: /data
+  volumes:
+    - name: data
+      persistentVolumeClaim:
+        claimName: e2e-data

@@ -64,6 +64,7 @@ var _ = BeforeSuite(func() {
 
 	configureKubectlKubeRC()
 	setupCertManager()
+	setupSnapshotDriver()
 })
 
 var _ = AfterSuite(func() {
@@ -104,6 +105,14 @@ func setupCertManager() {
 
 	By("installing CertManager")
 	Expect(utils.InstallCertManager()).To(Succeed(), "Failed to install CertManager")
+}
+
+// setupSnapshotDriver installs the VolumeSnapshot CRDs and the CSI hostpath driver.
+func setupSnapshotDriver() {
+	By("installing the CSI hostpath snapshot driver")
+	cmd := exec.Command("bash", "test/e2e/install-snapshot-driver.sh")
+	_, err := utils.Run(cmd)
+	Expect(err).NotTo(HaveOccurred(), "Failed to install the CSI hostpath snapshot driver")
 }
 
 // teardownCertManager uninstalls CertManager if it was installed by setupCertManager.

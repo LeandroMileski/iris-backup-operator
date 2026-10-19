@@ -333,6 +333,59 @@ var _ = Describe("Manager", Ordered, func() {
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
 
+		It("should snapshot a PVC and run the verification command", func() {
+			const workloadNamespace = "iris-e2e"
+
+			By("creating a PVC and a pod that writes a file")
+			cmd := exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/workload.yaml")
+			_, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create the e2e workload")
+			DeferCleanup(func() {
+				cleanup := exec.Command("kubectl", "delete", "ns", workloadNamespace,
+					"--ignore-not-found", "--wait=true", "--timeout=180s")
+				_, cleanupErr := utils.Run(cleanup)
+				Expect(cleanupErr).NotTo(HaveOccurred(), "Failed to delete the e2e namespace")
+			})
+
+			By("waiting for the writer to store the file")
+			cmd = exec.Command("kubectl", "wait", "--for=condition=Ready", "pod/e2e-writer",
+				"-n", workloadNamespace, "--timeout=180s")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Writer pod did not become Ready")
+			cmd = exec.Command("kubectl", "exec", "-n", workloadNamespace, "e2e-writer", "--", "test", "-s", "/data/ok")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Writer did not store /data/ok")
+
+			By("creating a BackupPolicy that verifies the restored file")
+			cmd = exec.Command("kubectl", "apply", "-f", "test/e2e/testdata/backuppolicy.yaml")
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create the BackupPolicy")
+
+			By("waiting for a ready VolumeSnapshot")
+			snapshotReady := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "volumesnapshots.snapshot.storage.k8s.io",
+					"-n", workloadNamespace,
+					"-o", "jsonpath={.items[*].status.readyToUse}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("true"))
+			}
+			Eventually(snapshotReady, 5*time.Minute, 5*time.Second).Should(Succeed())
+
+			By("waiting for the verification command to exit 0")
+			// The verification Pod is removed after it finishes, so the RestoreVerification status is the record that it ran.
+			verificationSucceeded := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "restoreverifications.ops.leandro.ie",
+					"-n", workloadNamespace,
+					"-o", "jsonpath={.items[0].status.phase}{\" \"}{.items[0].status.message}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("Succeeded"))
+				g.Expect(output).To(ContainSubstring("Verification command exited 0"))
+			}
+			Eventually(verificationSucceeded, 5*time.Minute, 5*time.Second).Should(Succeed())
+		})
+
 		// TODO: Customize the e2e test suite with scenarios specific to your project.
 		// Consider applying sample/CR(s) and check their status and/or verifying
 		// the reconciliation by using the metrics, i.e.:

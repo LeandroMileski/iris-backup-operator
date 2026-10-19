@@ -2,7 +2,7 @@
 
 Tick a box only after its acceptance check has evidence.
 
-Current step: **6.1**. Metrics: `backup_last_success_timestamp_seconds`, `backup_runs_total{result}`, `restore_verify_duration_seconds`, `snapshots_pruned_total`.
+Current step: **7.2**. Run `make test-e2e` on a Kind cluster other than `iris-dev`. Phase 6 is still open.
 
 ## Phase 0: Environment
 
@@ -81,17 +81,20 @@ Current step: **6.1**. Metrics: `backup_last_success_timestamp_seconds`, `backup
 
 ## Phase 7: Testing and CI
 
-- [ ] 7.1 Coverage report. Target meaningful coverage of pure logic (schedule, retention, validation) over line-count chasing.
+- [x] 7.1 Coverage report. Target meaningful coverage of pure logic (schedule, retention, validation) over line-count chasing.
+  - `make cover` in `op-dev` passed. `nextRun` is 100%. `snapshotsToDelete`, `compareSnapshotAge`, and `ownedBy` are 100%. `validateBackupPolicy`, `validateBackupPolicySpec`, `validateSchedule`, `validateRetention`, `validateTargetSelector`, and `validateVerification` are 100%. Statement coverage is 79.3% in `internal/controller` and 100% in the webhook. `snapshotPVC` stays at 33.3%; the remaining lines are the client error paths.
 - [ ] 7.2 GitHub Actions PR CI workflow (`.github/workflows/ci.yaml`):
   - Linting (`golangci-lint`, `go vet`).
   - Manifest & codegen drift verification (`make manifests generate` with `git diff --exit-code`) to prevent desynchronized CRDs.
   - Unit and integration tests with `envtest` (`make test`).
   - Ephemeral Kind cluster E2E run (`make test-e2e`) verifying real PVC, CSI snapshot, and pod execution.
+  - `.github/workflows/ci.yaml` replaces `lint.yml`, `test.yml`, and `test-e2e.yml`. Jobs are lint (`make lint-config`, `make lint`, `go vet`), manifest drift (`make manifests generate` and `git diff --exit-code`), `make test`, and `make test-e2e` on Kind v0.33.0 with node `kindest/node:v1.37.0`. The e2e suite installs snapshotter v8.6.0 and csi-driver-host-path v1.18.0, writes `/data/ok` on a `csi-hostpath-sc` PVC, and waits for `readyToUse: true` plus `RestoreVerification` `Succeeded` / `Verification command exited 0`. Not run here: `op-dev` already hosts `iris-dev`, and a second Kind cluster was not created.
 - [ ] 7.3 Release workflow (`.github/workflows/release.yaml`):
   - Triggered on semantic tags (`v*.*.*`).
   - Multi-arch container image build (`linux/amd64`, `linux/arm64`) using Docker Buildx with pinned distroless base digest.
   - Push image to registry (e.g., GitHub Packages / GHCR).
   - Container image signing and provenance with Cosign.
+  - `.github/workflows/release.yaml` runs on tags `v*.*.*`. Buildx pushes `linux/amd64` and `linux/arm64` to `ghcr.io/<repository>:<tag>`. The distroless digest stays pinned in the `Dockerfile`. The job signs the pushed digest with keyless Cosign and attests an SLSA v1 predicate for that commit. A tag has not been pushed, so the workflow has not run.
 
 ## Phase 8: Delivery & GitOps (Argo CD)
 
